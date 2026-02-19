@@ -1,0 +1,7 @@
+rules:
+  # ONE_GAME | EAST | SOUTH | TWO_WIND
+  length: TWO_WIND
+  starting_points: 25000
+  min_points_to_win: 30000
+  # 1-13
+  minimum_han: 1

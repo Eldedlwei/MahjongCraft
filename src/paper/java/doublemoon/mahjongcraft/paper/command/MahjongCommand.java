@@ -1,0 +1,280 @@
+package doublemoon.mahjongcraft.paper.command;
+
+import doublemoon.mahjongcraft.paper.MahjongCraftPaperPlugin;
+import doublemoon.mahjongcraft.paper.game.MahjongTable;
+import doublemoon.mahjongcraft.paper.game.MahjongTableManager;
+import doublemoon.mahjongcraft.paper.message.MessageUtil;
+import org.bukkit.Bukkit;
+import org.bukkit.command.Command;
+import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabExecutor;
+import org.bukkit.entity.Player;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+
+public final class MahjongCommand implements TabExecutor {
+    private final MahjongCraftPaperPlugin plugin;
+    private final MahjongTableManager manager;
+
+    public MahjongCommand(MahjongCraftPaperPlugin plugin, MahjongTableManager manager) {
+        this.plugin = plugin;
+        this.manager = manager;
+    }
+
+    @Override
+    public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        if (!(sender instanceof Player player)) {
+            MessageUtil.send(sender, "cmd.only_player");
+            return true;
+        }
+        if (args.length == 0) {
+            sendHelp(player);
+            return true;
+        }
+        String sub = args[0].toLowerCase(Locale.ROOT);
+        switch (sub) {
+            case "create" -> handleCreate(player);
+            case "join" -> {
+                if (args.length < 2) {
+                    MessageUtil.send(player, "cmd.usage_join");
+                } else {
+                    handleJoin(player, args[1]);
+                }
+            }
+            case "leave" -> handleLeave(player);
+            case "start" -> handleStart(player);
+            case "hand" -> handleHand(player);
+            case "claim" -> handleClaim(player);
+            case "gui" -> handleGui(player);
+            case "status" -> handleStatus(player);
+            case "discard" -> {
+                if (args.length < 2) {
+                    MessageUtil.send(player, "cmd.usage_discard");
+                } else {
+                    handleDiscard(player, args[1]);
+                }
+            }
+            case "pay" -> {
+                if (args.length < 2) {
+                    MessageUtil.send(player, "cmd.usage_pay");
+                } else {
+                    handlePay(player, args[1]);
+                }
+            }
+            case "riichi" -> handleSimpleResult(player, table -> table.riichi(player.getUniqueId()));
+            case "tsumo" -> handleSimpleResult(player, table -> table.tsumo(player.getUniqueId()));
+            case "ron" -> handleSimpleResult(player, table -> table.ron(player.getUniqueId()));
+            case "kyuushu" -> handleSimpleResult(player, table -> table.kyuushuKyuuhai(player.getUniqueId()));
+            case "pon" -> handleSimpleResult(player, table -> table.pon(player.getUniqueId()));
+            case "kan" -> {
+                if (args.length >= 2) {
+                    handleSimpleResult(player, table -> table.kan(player.getUniqueId(), args[1]));
+                } else {
+                    handleSimpleResult(player, table -> table.kan(player.getUniqueId()));
+                }
+            }
+            case "chii" -> {
+                if (args.length < 3) {
+                    MessageUtil.send(player, "cmd.usage_chii");
+                } else {
+                    handleSimpleResult(player, table -> table.chii(player.getUniqueId(), args[1], args[2]));
+                }
+            }
+            case "pass" -> handleSimpleResult(player, table -> table.pass(player.getUniqueId()));
+            default -> sendHelp(player);
+        }
+        return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 1) {
+            return List.of("create", "join", "leave", "start", "hand", "claim", "gui", "discard", "pay", "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status");
+        }
+        if (args.length == 2 && "discard".equalsIgnoreCase(args[0])) {
+            if (sender instanceof Player player) {
+                MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+                if (table != null) {
+                    int size = Objects.requireNonNull(table.players().get(player.getUniqueId())).hand().size();
+                    List<String> list = new ArrayList<>();
+                    for (int i = 1; i <= size; i++) {
+                        list.add(String.valueOf(i));
+                    }
+                    return list;
+                }
+            }
+        }
+        if (args.length >= 2 && "chii".equalsIgnoreCase(args[0])) {
+            return List.of("1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
+                    "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
+                    "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s");
+        }
+        if (args.length == 2 && "kan".equalsIgnoreCase(args[0])) {
+            return List.of("1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
+                    "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
+                    "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s",
+                    "east", "south", "west", "north", "white", "green", "red");
+        }
+        return List.of();
+    }
+
+    private void handleCreate(Player player) {
+        MahjongTable table = manager.createTable(player);
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_already_in_table");
+            return;
+        }
+        MessageUtil.send(player, "cmd.ok_table_created", MessageUtil.args("id", table.id()));
+        plugin.entityGuiManager().openFor(player, table);
+    }
+
+    private void handleJoin(Player player, String id) {
+        boolean ok = manager.join(player, id);
+        if (!ok) {
+            MessageUtil.send(player, "cmd.err_join_failed");
+            return;
+        }
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table != null) {
+            table.broadcast(player.getName() + " joined the table.");
+            table.broadcast(table.status());
+            plugin.entityGuiManager().openFor(player, table);
+            plugin.entityGuiManager().refreshTable(table.id());
+        }
+    }
+
+    private void handleLeave(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (!manager.leave(player.getUniqueId())) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+        } else {
+            MessageUtil.send(player, "cmd.ok_left_table");
+            plugin.entityGuiManager().close(player.getUniqueId());
+            if (table != null) {
+                plugin.entityGuiManager().closeByTable(table.id());
+            }
+        }
+    }
+
+    private void handleStart(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        if (!table.host().equals(player.getUniqueId())) {
+            MessageUtil.send(player, "cmd.err_only_host");
+            return;
+        }
+        String result = table.start();
+        table.broadcast(result);
+        table.broadcast(table.status());
+        table.players().keySet().forEach(uuid -> {
+            Player member = Bukkit.getPlayer(uuid);
+            if (member != null && member.isOnline()) {
+                plugin.entityGuiManager().openFor(member, table);
+            }
+        });
+        plugin.entityGuiManager().refreshTable(table.id());
+    }
+
+    private void handleHand(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        MessageUtil.sendRaw(player, table.handView(player.getUniqueId()));
+    }
+
+    private void handleGui(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        plugin.entityGuiManager().openFor(player, table);
+    }
+
+    private void handleClaim(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        MessageUtil.sendRaw(player, table.claimView(player.getUniqueId()));
+    }
+
+    private void handleDiscard(Player player, String rawIndex) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        int index;
+        try {
+            index = Integer.parseInt(rawIndex);
+        } catch (NumberFormatException e) {
+            MessageUtil.send(player, "cmd.err_number_index");
+            return;
+        }
+        String result = table.discard(player.getUniqueId(), index);
+        table.broadcast(result);
+        table.broadcast(table.status());
+        plugin.entityGuiManager().refreshTable(table.id());
+    }
+
+    private void handleStatus(Player player) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        MessageUtil.sendRaw(player, table.status());
+    }
+
+    private void handlePay(Player player, String rawAmount) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        double amount;
+        try {
+            amount = Double.parseDouble(rawAmount);
+        } catch (NumberFormatException e) {
+            MessageUtil.send(player, "cmd.err_number_amount");
+            return;
+        }
+        String result = table.pay(player.getUniqueId(), amount);
+        table.broadcast(result);
+        table.broadcast(table.status());
+        plugin.entityGuiManager().refreshTable(table.id());
+    }
+
+    private void handleSimpleResult(Player player, TableAction action) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        String result = action.apply(table);
+        table.broadcast(result);
+        table.broadcast(table.status());
+        plugin.entityGuiManager().refreshTable(table.id());
+    }
+
+    private void sendHelp(Player player) {
+        for (int i = 1; i <= 18; i++) {
+            MessageUtil.send(player, "cmd.help." + i);
+        }
+    }
+
+    @FunctionalInterface
+    private interface TableAction {
+        String apply(MahjongTable table);
+    }
+}

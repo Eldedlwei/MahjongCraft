@@ -1,0 +1,18 @@
+name: MahjongCraftPaper
+version: ${version}
+main: doublemoon.mahjongcraft.paper.MahjongCraftPaperPlugin
+api-version: '1.21'
+author: doublemoon + rewrite by Codex
+description: Riichi Mahjong Paper plugin (server-side rewrite).
+softdepend: [Vault, PacketEvents, packetevents]
+
+commands:
+  mahjong:
+    description: Mahjong table command.
+    usage: /mahjong
+    aliases: [mj]
+    permission: mahjongcraft.command
+
+permissions:
+  mahjongcraft.command:
+    default: true
