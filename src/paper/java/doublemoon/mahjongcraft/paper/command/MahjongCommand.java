@@ -45,6 +45,13 @@ public final class MahjongCommand implements TabExecutor {
                 }
             }
             case "leave" -> handleLeave(player);
+            case "mode" -> {
+                if (args.length < 2) {
+                    MessageUtil.sendRaw(player, "Usage: /mahjong mode <bot|human>");
+                } else {
+                    handleMode(player, args[1]);
+                }
+            }
             case "start" -> handleStart(player);
             case "hand" -> handleHand(player);
             case "claim" -> handleClaim(player);
@@ -92,7 +99,10 @@ public final class MahjongCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            return List.of("create", "join", "leave", "start", "hand", "claim", "gui", "discard", "pay", "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status");
+            return List.of("create", "join", "leave", "mode", "start", "hand", "claim", "gui", "discard", "pay", "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status");
+        }
+        if (args.length == 2 && "mode".equalsIgnoreCase(args[0])) {
+            return List.of("bot", "human");
         }
         if (args.length == 2 && "discard".equalsIgnoreCase(args[0])) {
             if (sender instanceof Player player) {
@@ -180,6 +190,27 @@ public final class MahjongCommand implements TabExecutor {
             }
         });
         runBotsAndSync(table);
+    }
+
+    private void handleMode(Player player, String rawMode) {
+        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+        if (table == null) {
+            MessageUtil.send(player, "cmd.err_not_in_table");
+            return;
+        }
+        MahjongTable.MatchMode mode = switch (rawMode.toLowerCase(Locale.ROOT)) {
+            case "bot", "bots", "ai" -> MahjongTable.MatchMode.BOT_FILL;
+            case "human", "pvp" -> MahjongTable.MatchMode.HUMAN_ONLY;
+            default -> null;
+        };
+        if (mode == null) {
+            MessageUtil.sendRaw(player, "Unknown mode. Use: bot or human.");
+            return;
+        }
+        String result = table.setMatchMode(player.getUniqueId(), mode);
+        table.broadcast(result);
+        table.broadcast(table.status());
+        plugin.entityGuiManager().refreshTable(table.id());
     }
 
     private void handleHand(Player player) {

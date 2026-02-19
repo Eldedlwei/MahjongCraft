@@ -27,6 +27,11 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
 
 public final class MahjongTable {
+    public enum MatchMode {
+        BOT_FILL,
+        HUMAN_ONLY
+    }
+
     private final String id;
     private final UUID host;
     private final Location center;
@@ -62,6 +67,7 @@ public final class MahjongTable {
     private final int minPointsToWin;
     private final int minimumHan;
     private final int startingPoints;
+    private MatchMode matchMode = MatchMode.BOT_FILL;
     private final List<MahjongTile> discardHistory = new ArrayList<>();
     private final Set<Integer> calledDiscardIndices = new HashSet<>();
 
@@ -98,6 +104,10 @@ public final class MahjongTable {
 
     public boolean started() {
         return started;
+    }
+
+    public MatchMode matchMode() {
+        return matchMode;
     }
 
     public Map<UUID, MahjongPlayerState> players() {
@@ -152,9 +162,13 @@ public final class MahjongTable {
         if (started) {
             return "Game already started.";
         }
-        fillBotsToFour();
+        if (matchMode == MatchMode.BOT_FILL) {
+            fillBotsToFour();
+        }
         if (players.size() != 4) {
-            return "Need 4 players to start.";
+            return matchMode == MatchMode.HUMAN_ONLY
+                    ? "Need 4 human players to start."
+                    : "Need 4 players to start.";
         }
         turnOrder = new ArrayList<>(players.keySet());
         dealerSeat = 0;
@@ -166,6 +180,21 @@ public final class MahjongTable {
             state.points(startingPoints);
         }
         return startNewHand("Round started.");
+    }
+
+    public String setMatchMode(UUID requester, MatchMode mode) {
+        ensureMainThread();
+        if (!host.equals(requester)) {
+            return "Only host can change mode.";
+        }
+        if (started) {
+            return "Cannot change mode after game start.";
+        }
+        if (mode == null) {
+            return "Invalid mode.";
+        }
+        this.matchMode = mode;
+        return "Match mode set to " + (mode == MatchMode.BOT_FILL ? "bot-fill" : "human-only") + ".";
     }
 
     public String runBots() {
@@ -417,6 +446,7 @@ public final class MahjongTable {
         return "Table " + id
                 + " | players " + players.size() + "/4"
                 + " | started " + started
+                + " | mode " + (matchMode == MatchMode.BOT_FILL ? "bot" : "human")
                 + " | length " + gameLength
                 + " | minHan " + minimumHan
                 + " | target " + minPointsToWin
