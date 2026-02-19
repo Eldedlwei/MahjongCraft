@@ -29,7 +29,21 @@ jobs:
       - name: Build
         run: |
           set -o pipefail
-          ./gradlew build --stacktrace --console=plain | tee gradle-build.log
+          ./gradlew build --stacktrace --console=plain 2>&1 | tee gradle-build.log
+          build_exit="${PIPESTATUS[0]}"
+          if [ "$build_exit" -ne 0 ]; then
+            {
+              echo "Build failed. Last 120 lines:"
+              tail -n 120 gradle-build.log
+              echo ""
+              echo "Key error lines:"
+              grep -E "error:|FAILURE: Build failed|What went wrong|Execution failed|Could not resolve|Compilation failed" gradle-build.log | tail -n 20 || true
+            } > build-failure-summary.txt
+
+            summary="$(sed ':a;N;$!ba;s/\n/ | /g' build-failure-summary.txt | sed 's/%/%25/g; s/\r/%0D/g; s/\n/%0A/g')"
+            echo "::error::$summary"
+            exit "$build_exit"
+          fi
 
       - name: Upload Build Artifacts
         if: always()
@@ -38,6 +52,7 @@ jobs:
           name: mahjongcraft-build-${{ github.run_number }}
           path: |
             gradle-build.log
+            build-failure-summary.txt
             build/libs/*.jar
             build/reports/**
           if-no-files-found: ignore
