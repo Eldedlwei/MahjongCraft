@@ -10,6 +10,7 @@ import org.bukkit.Location;
 import java.security.SecureRandom;
 import java.util.Collection;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -55,6 +56,30 @@ public final class MahjongTableManager {
     public MahjongTable getTableByPlayer(UUID uuid) {
         String id = playerToTableId.get(uuid);
         return id == null ? null : byId.get(id);
+    }
+
+    public List<MahjongTable> tables() {
+        return List.copyOf(byId.values());
+    }
+
+    public MahjongTable findNearestTable(Location location, double maxDistanceSquared) {
+        if (location == null || location.getWorld() == null) {
+            return null;
+        }
+        MahjongTable nearest = null;
+        double best = maxDistanceSquared;
+        for (MahjongTable table : byId.values()) {
+            Location center = table.center();
+            if (center.getWorld() == null || !center.getWorld().equals(location.getWorld())) {
+                continue;
+            }
+            double dist = center.distanceSquared(location);
+            if (dist <= best) {
+                best = dist;
+                nearest = table;
+            }
+        }
+        return nearest;
     }
 
     public boolean join(Player player, String id) {

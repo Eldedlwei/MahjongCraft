@@ -9,6 +9,7 @@ import doublemoon.mahjongcraft.paper.integration.PacketEventsBootstrap;
 import doublemoon.mahjongcraft.paper.integration.VaultMoneyGateway;
 import doublemoon.mahjongcraft.paper.listener.HandInventoryListener;
 import doublemoon.mahjongcraft.paper.listener.PlayerConnectionListener;
+import doublemoon.mahjongcraft.paper.listener.TableClickStartListener;
 import doublemoon.mahjongcraft.paper.ui.EntityTableGuiManager;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -39,6 +40,7 @@ public final class MahjongCraftPaperPlugin extends JavaPlugin {
         mahjong.setTabCompleter(command);
         getServer().getPluginManager().registerEvents(new PlayerConnectionListener(tableManager), this);
         getServer().getPluginManager().registerEvents(new HandInventoryListener(this, tableManager), this);
+        getServer().getPluginManager().registerEvents(new TableClickStartListener(this, tableManager), this);
         getServer().getPluginManager().registerEvents(entityGuiManager, this);
         getLogger().info(
                 "MahjongCraft Paper enabled. Economy=" + moneyGateway.name()
