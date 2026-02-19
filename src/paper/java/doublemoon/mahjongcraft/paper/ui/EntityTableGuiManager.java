@@ -422,6 +422,10 @@ public final class EntityTableGuiManager implements Listener {
         String result = action.get();
         table.broadcast(result);
         if (table.started()) {
+            String botResult = table.runBots();
+            if (!botResult.isBlank()) {
+                table.broadcast(botResult);
+            }
             table.broadcast(table.status());
             refreshTable(table.id());
         } else {

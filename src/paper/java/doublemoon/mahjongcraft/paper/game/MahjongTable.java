@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.UUID;
 
 public final class MahjongTable {
@@ -34,11 +35,18 @@ public final class MahjongTable {
     private final Map<UUID, MahjongPlayerState> playersView = Collections.unmodifiableMap(players);
     private final ArrayDeque<MahjongTile> wall = new ArrayDeque<>();
     private ItemDisplay centerDisplay;
+    private final Map<Integer, List<ItemDisplay>> seatWallDisplays = new HashMap<>();
     private final Map<Integer, List<ItemDisplay>> seatDiscardDisplays = new HashMap<>();
     private final Map<Integer, List<ItemDisplay>> seatMeldDisplays = new HashMap<>();
-    private final Map<Integer, List<ItemDisplay>> seatWallDisplays = new HashMap<>();
-    private final List<MahjongTile> lobbyWallTiles = new ArrayList<>();
+    private final Map<UUID, String> botNames = new HashMap<>();
+    private int nextBotIndex = 1;
     private int lastDisplayStateHash = Integer.MIN_VALUE;
+
+    // Parity constants from legacy fabric MahjongTileEntity dimensions.
+    private static final double TILE_WIDTH = (12.0 / 16.0) * 0.15;
+    private static final double TILE_HEIGHT = (16.0 / 16.0) * 0.15;
+    private static final double TILE_DEPTH = (8.0 / 16.0) * 0.15;
+    private static final double TILE_PADDING = 0.0025;
 
     private boolean started = false;
     private List<UUID> turnOrder = new ArrayList<>();
@@ -77,8 +85,6 @@ public final class MahjongTable {
         this.minPointsToWin = safeRules.minPointsToWin();
         this.minimumHan = safeRules.minimumHan();
         this.players.put(host, new MahjongPlayerState(host));
-        this.lobbyWallTiles.addAll(MahjongTile.buildWallWithThreeRedFives());
-        Collections.shuffle(this.lobbyWallTiles);
         refreshDisplays();
     }
 
@@ -108,12 +114,28 @@ public final class MahjongTable {
         return true;
     }
 
+    private void addBotPlayer() {
+        UUID uuid;
+        do {
+            uuid = UUID.randomUUID();
+        } while (players.containsKey(uuid));
+        players.put(uuid, new MahjongPlayerState(uuid));
+        botNames.put(uuid, "BOT-" + nextBotIndex++);
+    }
+
+    private void fillBotsToFour() {
+        while (players.size() < 4) {
+            addBotPlayer();
+        }
+    }
+
     public boolean removePlayer(UUID uuid) {
         ensureMainThread();
         boolean removed = players.remove(uuid) != null;
         if (!removed) {
             return false;
         }
+        botNames.remove(uuid);
         pendingOptions.remove(uuid);
         pendingDeclarations.remove(uuid);
         refreshDisplays();
@@ -130,6 +152,7 @@ public final class MahjongTable {
         if (started) {
             return "Game already started.";
         }
+        fillBotsToFour();
         if (players.size() != 4) {
             return "Need 4 players to start.";
         }
@@ -143,6 +166,11 @@ public final class MahjongTable {
             state.points(startingPoints);
         }
         return startNewHand("Round started.");
+    }
+
+    public String runBots() {
+        ensureMainThread();
+        return runBotTurns();
     }
 
     public UUID currentTurnPlayer() {
@@ -605,6 +633,7 @@ public final class MahjongTable {
         if (action == ClaimAction.PASS) {
             pendingDeclarations.put(uuid, new ClaimDeclaration(ClaimAction.PASS, List.of()));
         }
+        autoDeclareBotsOnClaims();
 
         if (pendingDeclarations.size() < pendingOptions.size()) {
             return "Claim recorded. Waiting others.";
@@ -738,6 +767,67 @@ public final class MahjongTable {
         return "All passed. Next player drew.";
     }
 
+    private String runBotTurns() {
+        if (!started) {
+            return "";
+        }
+        List<String> out = new ArrayList<>();
+        int safety = 200;
+        while (safety-- > 0) {
+            if (hasPendingClaims()) {
+                autoDeclareBotsOnClaims();
+                if (pendingDeclarations.size() == pendingOptions.size()) {
+                    out.add(resolveClaims());
+                    continue;
+                }
+                break;
+            }
+            UUID current = currentTurnPlayer();
+            if (current == null || !isBot(current)) {
+                break;
+            }
+            MahjongPlayerState state = players.get(current);
+            if (state == null) {
+                break;
+            }
+            if (canTsumoNow(current)) {
+                out.add(tsumo(current));
+                continue;
+            }
+            if (canRiichiNow(current) && !state.riichi()) {
+                out.add(riichi(current));
+            }
+            int discardIndex = chooseBotDiscardIndex(state);
+            out.add(discard(current, discardIndex));
+        }
+        return String.join(" ", out);
+    }
+
+    private void autoDeclareBotsOnClaims() {
+        for (Map.Entry<UUID, EnumSet<ClaimAction>> entry : pendingOptions.entrySet()) {
+            UUID uuid = entry.getKey();
+            if (!isBot(uuid) || pendingDeclarations.containsKey(uuid)) {
+                continue;
+            }
+            EnumSet<ClaimAction> options = entry.getValue();
+            if (options.contains(ClaimAction.RON)) {
+                pendingDeclarations.put(uuid, new ClaimDeclaration(ClaimAction.RON, List.of()));
+            } else {
+                pendingDeclarations.put(uuid, new ClaimDeclaration(ClaimAction.PASS, List.of()));
+            }
+        }
+    }
+
+    private int chooseBotDiscardIndex(MahjongPlayerState state) {
+        if (state.hand().isEmpty()) {
+            return 1;
+        }
+        if (state.riichi()) {
+            return state.hand().size();
+        }
+        return ThreadLocalRandom.current().nextInt(1, state.hand().size() + 1);
+    }
+
     private String applyPonOrKan(UUID caller, ClaimAction action) {
         MahjongPlayerState state = players.get(caller);
         if (state == null || pendingDiscardTile == null) {
@@ -836,7 +926,9 @@ public final class MahjongTable {
         }
         if (pendingOptions.isEmpty()) {
             clearClaims();
+            return;
         }
+        autoDeclareBotsOnClaims();
     }
 
     private boolean canOpenKanFromDiscard(UUID caller, UUID discarder) {
@@ -862,7 +954,9 @@ public final class MahjongTable {
         }
         if (pendingOptions.isEmpty()) {
             clearClaims();
+            return;
         }
+        autoDeclareBotsOnClaims();
     }
 
     private String selfKan(UUID uuid, MahjongTile wanted) {
@@ -1692,8 +1786,16 @@ public final class MahjongTable {
     }
 
     private String nameOf(UUID uuid) {
+        String bot = botNames.get(uuid);
+        if (bot != null) {
+            return bot;
+        }
         Player player = Bukkit.getPlayer(uuid);
         return player != null ? player.getName() : uuid.toString();
+    }
+
+    private boolean isBot(UUID uuid) {
+        return botNames.containsKey(uuid);
     }
 
     private void clearDisplays() {
@@ -1723,7 +1825,7 @@ public final class MahjongTable {
         World world = center.getWorld();
         if (!started) {
             updateCenterMarker(world);
-            updateLobbyWalls(world);
+            clearDisplayMap(seatWallDisplays);
             clearDisplayMap(seatDiscardDisplays);
             clearDisplayMap(seatMeldDisplays);
             lastDisplayStateHash = Integer.MIN_VALUE;
@@ -1734,7 +1836,7 @@ public final class MahjongTable {
             return;
         }
         updateCenterMarker(world);
-        clearDisplayMap(seatWallDisplays);
+        updateLiveWalls(world);
         for (int seat = 0; seat < turnOrder.size(); seat++) {
             UUID uuid = turnOrder.get(seat);
             MahjongPlayerState state = players.get(uuid);
@@ -1746,6 +1848,7 @@ public final class MahjongTable {
         }
         trimUnusedSeats(seatDiscardDisplays, turnOrder.size());
         trimUnusedSeats(seatMeldDisplays, turnOrder.size());
+        trimUnusedSeats(seatWallDisplays, 4);
         lastDisplayStateHash = stateHash;
     }
 
@@ -1767,37 +1870,57 @@ public final class MahjongTable {
         centerDisplay.setItemStack(TileVisuals.createTileItem(marker, pendingDiscardTile == null ? "Round " : "Claim "));
     }
 
-    private void updateLobbyWalls(World world) {
-        if (lobbyWallTiles.isEmpty()) {
-            return;
-        }
-        int global = 0;
-        for (int seat = 0; seat < 4; seat++) {
-            List<ItemDisplay> list = seatWallDisplays.computeIfAbsent(seat, key -> new ArrayList<>());
-            for (int i = 0; i < 34; i++) {
-                MahjongTile tile = lobbyWallTiles.get(global % lobbyWallTiles.size());
-                int col = i % 17;
-                int layer = i / 17;
-                double x = -2.04 + col * 0.255;
-                double z = -0.92;
-                double y = 1.02 + layer * 0.13;
-                Location loc = seatPoint(seat, x, z, y);
-                ItemDisplay display = ensureDisplay(list, i, world, loc, yawForSeat(seat));
+    private void updateLiveWalls(World world) {
+        List<MahjongTile> tiles = new ArrayList<>(wall);
+        int total = Math.min(tiles.size(), 136);
+        int sideLength = 34;
+        double directionOffset = 1.0;
+        double baseY = 1.02;
+        double startingPos = (17.0 * TILE_WIDTH) / 2.0 - TILE_HEIGHT;
+
+        for (int side = 0; side < 4; side++) {
+            List<ItemDisplay> list = seatWallDisplays.computeIfAbsent(side, key -> new ArrayList<>());
+            int sideStart = side * sideLength;
+            int sideCount = Math.max(0, Math.min(sideLength, total - sideStart));
+            for (int local = 0; local < sideCount; local++) {
+                int global = sideStart + local;
+                MahjongTile tile = tiles.get(global);
+                int topOrBottom = 1 - (local % 2);
+                int stackNum = (local / 2) % 17;
+                double stackWidth = stackNum * (TILE_WIDTH + TILE_PADDING);
+                double y = baseY + (topOrBottom * TILE_DEPTH) + (topOrBottom == 1 ? TILE_PADDING : 0.0);
+                Location loc = switch (side) {
+                    case 0 -> center.clone().add(directionOffset, y, -startingPos + stackWidth);
+                    case 1 -> center.clone().add(startingPos - stackWidth, y, directionOffset);
+                    case 2 -> center.clone().add(-directionOffset, y, startingPos - stackWidth);
+                    default -> center.clone().add(-startingPos + stackWidth, y, -directionOffset);
+                };
+                float yaw = switch (side) {
+                    case 0 -> -90f;
+                    case 1 -> 0f;
+                    case 2 -> 90f;
+                    default -> 180f;
+                };
+                ItemDisplay display = ensureDisplay(list, local, world, loc, yaw);
                 display.teleport(loc);
                 display.setItemStack(TileVisuals.createTileItem(tile, ""));
-                global++;
             }
-            trimList(list, 34);
+            trimList(list, sideCount);
         }
     }
 
     private void updateDiscards(World world, int seat, List<MahjongTile> discards) {
         List<ItemDisplay> list = seatDiscardDisplays.computeIfAbsent(seat, key -> new ArrayList<>());
+        double halfWidthOfSixTiles = (TILE_WIDTH * 6.0 / 2.0);
+        double paddingFromCenter = halfWidthOfSixTiles + TILE_HEIGHT / 2.0 + TILE_HEIGHT / 4.0;
+        double basicOffset = halfWidthOfSixTiles - TILE_WIDTH / 2.0;
         for (int i = 0; i < discards.size(); i++) {
             MahjongTile tile = discards.get(i);
-            double row = i / 6;
-            double col = i % 6;
-            Location loc = seatPoint(seat, -0.8 + col * 0.25, 0.25 + row * 0.2, 1.03);
+            int row = i / 6;
+            int col = i % 6;
+            double zLocal = paddingFromCenter - row * (TILE_HEIGHT + TILE_PADDING);
+            double xLocal = basicOffset - col * (TILE_WIDTH + TILE_PADDING);
+            Location loc = seatPoint(seat, xLocal, zLocal, 1.03);
             ItemDisplay display = ensureDisplay(list, i, world, loc, yawForSeat(seat));
             display.teleport(loc);
             display.setItemStack(TileVisuals.createTileItem(tile, ""));
@@ -1807,12 +1930,16 @@ public final class MahjongTable {
 
     private void updateMelds(World world, int seat, List<MahjongMeld> melds) {
         List<ItemDisplay> list = seatMeldDisplays.computeIfAbsent(seat, key -> new ArrayList<>());
+        double halfTableLengthNoBorder = 0.5 + 15.0 / 16.0;
+        double startX = halfTableLengthNoBorder - TILE_HEIGHT / 2.0;
+        double startZ = -halfTableLengthNoBorder;
         int layoutIndex = 0;
         int displayIndex = 0;
         for (MahjongMeld meld : melds) {
             for (int j = 0; j < meld.tiles().size(); j++) {
                 MahjongTile tile = meld.tiles().get(j);
-                Location loc = seatPoint(seat, -1.2 + layoutIndex * 0.22, -0.35, 1.03);
+                double offset = layoutIndex * (TILE_WIDTH + TILE_PADDING);
+                Location loc = seatPoint(seat, startX, startZ + offset, 1.03);
                 ItemDisplay display = ensureDisplay(list, displayIndex, world, loc, yawForSeat(seat));
                 display.teleport(loc);
                 display.setItemStack(TileVisuals.createTileItem(tile, ""));
@@ -1906,6 +2033,14 @@ public final class MahjongTable {
         hash = 31 * hash + turnOrder.hashCode();
         hash = 31 * hash + (pendingDiscardTile == null ? 0 : pendingDiscardTile.sortOrder());
         hash = 31 * hash + (pendingDiscarder == null ? 0 : pendingDiscarder.hashCode());
+        hash = 31 * hash + wall.size();
+        int wallPreview = 0;
+        for (MahjongTile tile : wall) {
+            hash = 31 * hash + tile.sortOrder();
+            if (++wallPreview >= 24) {
+                break;
+            }
+        }
         for (UUID uuid : turnOrder) {
             MahjongPlayerState state = players.get(uuid);
             if (state == null) {
@@ -1946,7 +2081,7 @@ public final class MahjongTable {
         display.setTransformation(new Transformation(
                 new Vector3f(0, 0, 0),
                 new AxisAngle4f(),
-                new Vector3f(0.45f, 0.45f, 0.45f),
+                new Vector3f(0.15f, 0.15f, 0.15f),
                 new AxisAngle4f()
         ));
     }

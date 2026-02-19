@@ -173,14 +173,13 @@ public final class MahjongCommand implements TabExecutor {
         }
         String result = table.start();
         table.broadcast(result);
-        table.broadcast(table.status());
         table.players().keySet().forEach(uuid -> {
             Player member = Bukkit.getPlayer(uuid);
             if (member != null && member.isOnline()) {
                 plugin.entityGuiManager().openFor(member, table);
             }
         });
-        plugin.entityGuiManager().refreshTable(table.id());
+        runBotsAndSync(table);
     }
 
     private void handleHand(Player player) {
@@ -225,8 +224,7 @@ public final class MahjongCommand implements TabExecutor {
         }
         String result = table.discard(player.getUniqueId(), index);
         table.broadcast(result);
-        table.broadcast(table.status());
-        plugin.entityGuiManager().refreshTable(table.id());
+        runBotsAndSync(table);
     }
 
     private void handleStatus(Player player) {
@@ -265,8 +263,18 @@ public final class MahjongCommand implements TabExecutor {
         }
         String result = action.apply(table);
         table.broadcast(result);
-        table.broadcast(table.status());
-        plugin.entityGuiManager().refreshTable(table.id());
+        runBotsAndSync(table);
+    }
+
+    private void runBotsAndSync(MahjongTable table) {
+        if (table.started()) {
+            String botResult = table.runBots();
+            if (!botResult.isBlank()) {
+                table.broadcast(botResult);
+            }
+            table.broadcast(table.status());
+            plugin.entityGuiManager().refreshTable(table.id());
+        }
     }
 
     private void sendHelp(Player player) {

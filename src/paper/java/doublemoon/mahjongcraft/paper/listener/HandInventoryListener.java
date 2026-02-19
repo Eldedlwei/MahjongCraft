@@ -45,6 +45,10 @@ public final class HandInventoryListener implements Listener {
         String result = table.discard(player.getUniqueId(), slot + 1);
         table.broadcast(result);
         if (table.started()) {
+            String botResult = table.runBots();
+            if (!botResult.isBlank()) {
+                table.broadcast(botResult);
+            }
             table.broadcast(table.status());
             HandView.open(plugin, player, table);
         } else {
@@ -59,4 +63,3 @@ public final class HandInventoryListener implements Listener {
         }
     }
 }
-
