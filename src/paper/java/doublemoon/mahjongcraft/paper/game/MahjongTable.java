@@ -1449,7 +1449,41 @@ public final class MahjongTable {
 
     private void finishGame() {
         started = false;
+        wall.clear();
+        discardHistory.clear();
+        calledDiscardIndices.clear();
         clearClaims();
+        pendingDiscardGlobalIndex = -1;
+
+        roundWind = Wind.EAST;
+        spentRounds = 0;
+        honba = 0;
+        riichiPot = 0;
+        turnIndex = 0;
+        dealerSeat = 0;
+        turnOrder = new ArrayList<>();
+
+        for (MahjongPlayerState state : players.values()) {
+            state.hand().clear();
+            state.discards().clear();
+            state.melds().clear();
+            state.riichi(false);
+            state.ippatsuEligible(false);
+            state.temporaryFuriten(false);
+            state.riichiFuriten(false);
+            state.lastDrawRinshan(false);
+            state.lastDiscardGlobalIndex(-1);
+            state.riichiDeclarationGlobalIndex(-1);
+        }
+
+        if (!botNames.isEmpty()) {
+            for (UUID botId : new ArrayList<>(botNames.keySet())) {
+                players.remove(botId);
+            }
+            botNames.clear();
+            nextBotIndex = 1;
+        }
+
         refreshDisplays();
     }
 
