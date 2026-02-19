@@ -27,7 +27,9 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build
-        run: ./gradlew build --stacktrace
+        run: |
+          set -o pipefail
+          ./gradlew build --stacktrace --console=plain | tee gradle-build.log
 
       - name: Upload Build Artifacts
         if: always()
@@ -35,6 +37,7 @@ jobs:
         with:
           name: mahjongcraft-build-${{ github.run_number }}
           path: |
+            gradle-build.log
             build/libs/*.jar
             build/reports/**
           if-no-files-found: ignore
