@@ -20,8 +20,8 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("io.github.ssttkkl:mahjong-utils-jvm:0.7.7")
-    compileOnly("com.github.retrooper:packetevents-spigot:2.10.1")
-    compileOnly("com.github.MilkBowl:VaultAPI:1.7") {
+    compileOnly("com.github.retrooper:packetevents-spigot:2.11.2")
+    compileOnly("com.github.MilkBowl:VaultAPI:1.7.1") {
         exclude(group = "org.bukkit", module = "bukkit")
     }
 }
