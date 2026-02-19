@@ -36,6 +36,8 @@ public final class MahjongTable {
     private ItemDisplay centerDisplay;
     private final Map<Integer, List<ItemDisplay>> seatDiscardDisplays = new HashMap<>();
     private final Map<Integer, List<ItemDisplay>> seatMeldDisplays = new HashMap<>();
+    private final Map<Integer, List<ItemDisplay>> seatWallDisplays = new HashMap<>();
+    private final List<MahjongTile> lobbyWallTiles = new ArrayList<>();
     private int lastDisplayStateHash = Integer.MIN_VALUE;
 
     private boolean started = false;
@@ -75,6 +77,9 @@ public final class MahjongTable {
         this.minPointsToWin = safeRules.minPointsToWin();
         this.minimumHan = safeRules.minimumHan();
         this.players.put(host, new MahjongPlayerState(host));
+        this.lobbyWallTiles.addAll(MahjongTile.buildWallWithThreeRedFives());
+        Collections.shuffle(this.lobbyWallTiles);
+        refreshDisplays();
     }
 
     public String id() {
@@ -1700,23 +1705,36 @@ public final class MahjongTable {
         for (List<ItemDisplay> list : seatMeldDisplays.values()) {
             removeDisplays(list);
         }
+        for (List<ItemDisplay> list : seatWallDisplays.values()) {
+            removeDisplays(list);
+        }
         seatDiscardDisplays.clear();
         seatMeldDisplays.clear();
+        seatWallDisplays.clear();
         lastDisplayStateHash = Integer.MIN_VALUE;
     }
 
     private void refreshDisplays() {
         ensureMainThread();
-        if (!started || center.getWorld() == null) {
+        if (center.getWorld() == null) {
             clearDisplays();
             return;
         }
         World world = center.getWorld();
+        if (!started) {
+            updateCenterMarker(world);
+            updateLobbyWalls(world);
+            clearDisplayMap(seatDiscardDisplays);
+            clearDisplayMap(seatMeldDisplays);
+            lastDisplayStateHash = Integer.MIN_VALUE;
+            return;
+        }
         int stateHash = computeDisplayStateHash();
         if (stateHash == lastDisplayStateHash && displaysValid(world)) {
             return;
         }
         updateCenterMarker(world);
+        clearDisplayMap(seatWallDisplays);
         for (int seat = 0; seat < turnOrder.size(); seat++) {
             UUID uuid = turnOrder.get(seat);
             MahjongPlayerState state = players.get(uuid);
@@ -1747,6 +1765,30 @@ public final class MahjongTable {
         }
         MahjongTile marker = pendingDiscardTile != null ? pendingDiscardTile : MahjongTile.EAST;
         centerDisplay.setItemStack(TileVisuals.createTileItem(marker, pendingDiscardTile == null ? "Round " : "Claim "));
+    }
+
+    private void updateLobbyWalls(World world) {
+        if (lobbyWallTiles.isEmpty()) {
+            return;
+        }
+        int global = 0;
+        for (int seat = 0; seat < 4; seat++) {
+            List<ItemDisplay> list = seatWallDisplays.computeIfAbsent(seat, key -> new ArrayList<>());
+            for (int i = 0; i < 34; i++) {
+                MahjongTile tile = lobbyWallTiles.get(global % lobbyWallTiles.size());
+                int col = i % 17;
+                int layer = i / 17;
+                double x = -2.04 + col * 0.255;
+                double z = -0.92;
+                double y = 1.02 + layer * 0.13;
+                Location loc = seatPoint(seat, x, z, y);
+                ItemDisplay display = ensureDisplay(list, i, world, loc, yawForSeat(seat));
+                display.teleport(loc);
+                display.setItemStack(TileVisuals.createTileItem(tile, ""));
+                global++;
+            }
+            trimList(list, 34);
+        }
     }
 
     private void updateDiscards(World world, int seat, List<MahjongTile> discards) {
@@ -1826,6 +1868,13 @@ public final class MahjongTable {
         displays.clear();
     }
 
+    private void clearDisplayMap(Map<Integer, List<ItemDisplay>> source) {
+        for (List<ItemDisplay> list : source.values()) {
+            removeDisplays(list);
+        }
+        source.clear();
+    }
+
     private void removeDisplay(Entity entity) {
         if (entity != null && entity.isValid()) {
             entity.remove();
@@ -1836,7 +1885,9 @@ public final class MahjongTable {
         if (centerDisplay == null || !centerDisplay.isValid() || !world.equals(centerDisplay.getWorld())) {
             return false;
         }
-        return listWorldValid(seatDiscardDisplays, world) && listWorldValid(seatMeldDisplays, world);
+        return listWorldValid(seatDiscardDisplays, world)
+                && listWorldValid(seatMeldDisplays, world)
+                && listWorldValid(seatWallDisplays, world);
     }
 
     private boolean listWorldValid(Map<Integer, List<ItemDisplay>> source, World world) {
