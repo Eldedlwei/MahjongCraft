@@ -79,9 +79,12 @@ public final class MessageUtil {
 
     private static String localeOf(CommandSender sender) {
         if (sender instanceof Player player) {
-            String raw = player.locale();
-            if (raw != null && !raw.isBlank()) {
-                return raw.toLowerCase(Locale.ROOT);
+            Locale locale = player.locale();
+            if (locale != null) {
+                String raw = locale.toLanguageTag().replace('-', '_');
+                if (!raw.isBlank()) {
+                    return raw.toLowerCase(Locale.ROOT);
+                }
             }
         }
         return DEFAULT_LOCALE;
@@ -105,4 +108,3 @@ public final class MessageUtil {
         }
     }
 }
-
