@@ -558,6 +558,20 @@ public final class MahjongTable {
         }
     }
 
+    public void broadcastKey(String key) {
+        broadcastKey(key, Map.of());
+    }
+
+    public void broadcastKey(String key, Map<String, String> args) {
+        ensureMainThread();
+        for (UUID uuid : players.keySet()) {
+            Player player = Bukkit.getPlayer(uuid);
+            if (player != null && player.isOnline()) {
+                MessageUtil.send(player, key, args);
+            }
+        }
+    }
+
     public boolean isEmpty() {
         return players.isEmpty();
     }

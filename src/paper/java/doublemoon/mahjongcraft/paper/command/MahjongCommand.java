@@ -36,7 +36,7 @@ public final class MahjongCommand implements TabExecutor {
         }
         String sub = args[0].toLowerCase(Locale.ROOT);
         switch (sub) {
-            case "create" -> handleCreate(player);
+            case "create", "creat" -> handleCreate(player);
             case "join" -> {
                 if (args.length < 2) {
                     MessageUtil.send(player, "cmd.usage_join");
@@ -129,6 +129,8 @@ public final class MahjongCommand implements TabExecutor {
         }
         MessageUtil.send(player, "cmd.ok_table_created", MessageUtil.args("id", table.id()));
         plugin.entityGuiManager().openFor(player, table);
+        plugin.entityGuiManager().refreshTable(table.id());
+        MessageUtil.send(player, "cmd.tip_gui_retry");
     }
 
     private void handleJoin(Player player, String id) {
@@ -139,7 +141,7 @@ public final class MahjongCommand implements TabExecutor {
         }
         MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
         if (table != null) {
-            table.broadcast(player.getName() + " joined the table.");
+            table.broadcastKey("table.player_joined", MessageUtil.args("player", player.getName()));
             table.broadcast(table.status());
             plugin.entityGuiManager().openFor(player, table);
             plugin.entityGuiManager().refreshTable(table.id());

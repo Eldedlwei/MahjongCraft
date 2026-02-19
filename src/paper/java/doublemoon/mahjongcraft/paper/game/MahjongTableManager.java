@@ -1,6 +1,7 @@
 package doublemoon.mahjongcraft.paper.game;
 
 import doublemoon.mahjongcraft.paper.integration.MoneyGateway;
+import doublemoon.mahjongcraft.paper.message.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -79,15 +80,19 @@ public final class MahjongTableManager {
             return false;
         }
         if (table.started()) {
-            disband(table.id(), "A player left during game. Table disbanded.");
+            disbandKey(table.id(), "table.player_left_game_disband", Map.of(
+                    "player", nameOf(uuid)
+            ));
             return true;
         }
         boolean removed = table.removePlayer(uuid);
         playerToTableId.remove(uuid);
         if (removed) {
-            table.broadcast("A player left the table.");
+            table.broadcastKey("table.player_left", MessageUtil.args("player", nameOf(uuid)));
             if (table.host().equals(uuid) || table.isEmpty()) {
-                disband(table.id(), "Host left. Table disbanded.");
+                disbandKey(table.id(), "table.host_left_disband", Map.of(
+                        "player", nameOf(uuid)
+                ));
             }
         }
         return removed;
@@ -105,10 +110,22 @@ public final class MahjongTableManager {
         table.destroy();
     }
 
+    public void disbandKey(String tableId, String key, Map<String, String> args) {
+        ensureMainThread();
+        MahjongTable table = byId.remove(tableId);
+        if (table == null) {
+            return;
+        }
+        Collection<UUID> uuids = table.players().keySet();
+        uuids.forEach(playerToTableId::remove);
+        table.broadcastKey(key, args);
+        table.destroy();
+    }
+
     public void shutdown() {
         ensureMainThread();
         byId.values().forEach(table -> {
-            table.broadcast("Plugin is shutting down. Table closed.");
+            table.broadcastKey("table.plugin_shutdown");
             table.destroy();
         });
         byId.clear();
@@ -137,5 +154,10 @@ public final class MahjongTableManager {
         if (!Bukkit.isPrimaryThread()) {
             throw new IllegalStateException("MahjongTableManager must run on main server thread");
         }
+    }
+
+    private String nameOf(UUID uuid) {
+        Player player = Bukkit.getPlayer(uuid);
+        return player != null ? player.getName() : uuid.toString();
     }
 }
