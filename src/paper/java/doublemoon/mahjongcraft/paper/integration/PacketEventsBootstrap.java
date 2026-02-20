@@ -10,36 +10,27 @@ public final class PacketEventsBootstrap {
     }
 
     public static boolean init(JavaPlugin plugin) {
-        if (Bukkit.getPluginManager().getPlugin("packetevents") == null
-                && Bukkit.getPluginManager().getPlugin("PacketEvents") == null) {
+        org.bukkit.plugin.Plugin packetEventsPlugin = Bukkit.getPluginManager().getPlugin("PacketEvents");
+        if (packetEventsPlugin == null) {
+            packetEventsPlugin = Bukkit.getPluginManager().getPlugin("packetevents");
+        }
+        if (packetEventsPlugin == null) {
             plugin.getLogger().warning("PacketEvents plugin not found. Packet-level features disabled.");
             return false;
         }
         try {
-            Class<?> builderClass = Class.forName("io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder");
-            Method build = builderClass.getMethod("build", org.bukkit.plugin.Plugin.class);
-            Object api = build.invoke(null, plugin);
-
-            Class<?> packetEventsClass = Class.forName("io.github.retrooper.packetevents.PacketEvents");
-            Method setApi = null;
-            for (Method method : packetEventsClass.getMethods()) {
-                if ("setAPI".equals(method.getName()) && method.getParameterCount() == 1) {
-                    setApi = method;
-                    break;
-                }
-            }
-            if (setApi == null) {
-                throw new NoSuchMethodException("PacketEvents.setAPI");
-            }
-            setApi.invoke(null, api);
-
+            ClassLoader loader = packetEventsPlugin.getClass().getClassLoader();
+            Class<?> packetEventsClass = loadClass(loader,
+                    "io.github.retrooper.packetevents.PacketEvents",
+                    "com.github.retrooper.packetevents.PacketEvents"
+            );
             Method getApi = packetEventsClass.getMethod("getAPI");
             Object packetApi = getApi.invoke(null);
-            Class<?> apiInterface = Class.forName("io.github.retrooper.packetevents.PacketEventsAPI");
-            apiInterface.getMethod("load").invoke(packetApi);
-            apiInterface.getMethod("init").invoke(packetApi);
-
-            plugin.getLogger().info("PacketEvents initialized.");
+            if (packetApi == null) {
+                plugin.getLogger().warning("PacketEvents API not initialized yet. Features disabled.");
+                return false;
+            }
+            plugin.getLogger().info("PacketEvents detected.");
             return true;
         } catch (Throwable throwable) {
             plugin.getLogger().warning("PacketEvents init failed: " + throwable.getClass().getSimpleName() + " " + throwable.getMessage());
@@ -48,17 +39,14 @@ public final class PacketEventsBootstrap {
     }
 
     public static void shutdown(JavaPlugin plugin) {
+        // PacketEvents lifecycle is owned by the PacketEvents plugin when not bundled.
+    }
+
+    private static Class<?> loadClass(ClassLoader loader, String primary, String fallback) throws ClassNotFoundException {
         try {
-            Class<?> packetEventsClass = Class.forName("io.github.retrooper.packetevents.PacketEvents");
-            Method getApi = packetEventsClass.getMethod("getAPI");
-            Object packetApi = getApi.invoke(null);
-            if (packetApi != null) {
-                Class<?> apiInterface = Class.forName("io.github.retrooper.packetevents.PacketEventsAPI");
-                apiInterface.getMethod("terminate").invoke(packetApi);
-                plugin.getLogger().info("PacketEvents terminated.");
-            }
-        } catch (Throwable ignored) {
-            // ignored on shutdown
+            return Class.forName(primary, false, loader);
+        } catch (ClassNotFoundException ignored) {
+            return Class.forName(fallback, false, loader);
         }
     }
 }
