@@ -116,28 +116,48 @@ public final class MahjongCommand implements TabExecutor {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         return switch (args.length) {
-            case 1 -> SUBCOMMANDS;
+            case 1 -> filterByPrefix(SUBCOMMANDS, args[0]);
             case 2 -> switch (args[0].toLowerCase(Locale.ROOT)) {
-                case "mode" -> MODE_OPTIONS;
-                case "discard" -> {
-                    if (sender instanceof Player player) {
-                        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
-                        if (table != null) {
-                            int size = Objects.requireNonNull(table.players().get(player.getUniqueId())).hand().size();
-                            List<String> list = new ArrayList<>(size);
-                            for (int i = 1; i <= size; i++) {
-                                list.add(String.valueOf(i));
-                            }
-                            yield list;
-                        }
-                    }
-                    yield List.of();
-                }
-                case "kan" -> KAN_TILES;
+                case "mode" -> filterByPrefix(MODE_OPTIONS, args[1]);
+                case "discard" -> filterByPrefix(discardOptions(sender), args[1]);
+                case "kan" -> filterByPrefix(KAN_TILES, args[1]);
+                case "chii" -> filterByPrefix(CHII_TILES, args[1]);
                 default -> List.of();
             };
-            default -> "chii".equalsIgnoreCase(args[0]) ? CHII_TILES : List.of();
+            default -> "chii".equalsIgnoreCase(args[0]) ? filterByPrefix(CHII_TILES, args[args.length - 1]) : List.of();
         };
+    }
+
+    private List<String> discardOptions(CommandSender sender) {
+        if (sender instanceof Player player) {
+            MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+            if (table != null) {
+                int size = Objects.requireNonNull(table.players().get(player.getUniqueId())).hand().size();
+                List<String> list = new ArrayList<>(size);
+                for (int i = 1; i <= size; i++) {
+                    list.add(String.valueOf(i));
+                }
+                return list;
+            }
+        }
+        return List.of();
+    }
+
+    private List<String> filterByPrefix(List<String> options, String prefix) {
+        if (options.isEmpty()) {
+            return options;
+        }
+        if (prefix == null || prefix.isBlank()) {
+            return options;
+        }
+        String needle = prefix.toLowerCase(Locale.ROOT);
+        List<String> out = new ArrayList<>();
+        for (String option : options) {
+            if (option.toLowerCase(Locale.ROOT).startsWith(needle)) {
+                out.add(option);
+            }
+        }
+        return out;
     }
 
     private void handleCreate(Player player) {
