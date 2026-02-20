@@ -20,7 +20,7 @@ public final class PacketEventsBootstrap {
             Method build = builderClass.getMethod("build", org.bukkit.plugin.Plugin.class);
             Object api = build.invoke(null, plugin);
 
-            Class<?> packetEventsClass = Class.forName("com.github.retrooper.packetevents.PacketEvents");
+            Class<?> packetEventsClass = Class.forName("io.github.retrooper.packetevents.PacketEvents");
             Method setApi = null;
             for (Method method : packetEventsClass.getMethods()) {
                 if ("setAPI".equals(method.getName()) && method.getParameterCount() == 1) {
@@ -35,8 +35,9 @@ public final class PacketEventsBootstrap {
 
             Method getApi = packetEventsClass.getMethod("getAPI");
             Object packetApi = getApi.invoke(null);
-            packetApi.getClass().getMethod("load").invoke(packetApi);
-            packetApi.getClass().getMethod("init").invoke(packetApi);
+            Class<?> apiInterface = Class.forName("io.github.retrooper.packetevents.PacketEventsAPI");
+            apiInterface.getMethod("load").invoke(packetApi);
+            apiInterface.getMethod("init").invoke(packetApi);
 
             plugin.getLogger().info("PacketEvents initialized.");
             return true;
@@ -48,11 +49,12 @@ public final class PacketEventsBootstrap {
 
     public static void shutdown(JavaPlugin plugin) {
         try {
-            Class<?> packetEventsClass = Class.forName("com.github.retrooper.packetevents.PacketEvents");
+            Class<?> packetEventsClass = Class.forName("io.github.retrooper.packetevents.PacketEvents");
             Method getApi = packetEventsClass.getMethod("getAPI");
             Object packetApi = getApi.invoke(null);
             if (packetApi != null) {
-                packetApi.getClass().getMethod("terminate").invoke(packetApi);
+                Class<?> apiInterface = Class.forName("io.github.retrooper.packetevents.PacketEventsAPI");
+                apiInterface.getMethod("terminate").invoke(packetApi);
                 plugin.getLogger().info("PacketEvents terminated.");
             }
         } catch (Throwable ignored) {
