@@ -2204,7 +2204,7 @@ public final class MahjongTable {
             Bukkit.getGlobalRegionScheduler().run(plugin, task -> action.run());
             return;
         }
-        world.getRegionScheduler().run(plugin, location, task -> action.run());
+        Bukkit.getRegionScheduler().run(plugin, location, task -> action.run());
     }
 
     private void applyFlatTransform(ItemDisplay display, float yaw) {

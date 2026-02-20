@@ -755,7 +755,7 @@ public final class EntityTableGuiManager implements Listener {
         if (world == null) {
             return;
         }
-        world.getRegionScheduler().run(tableManager.plugin(), location, task -> action.run());
+        Bukkit.getRegionScheduler().run(tableManager.plugin(), location, task -> action.run());
     }
 
     private void scheduleEntityRemoval(Entity entity) {

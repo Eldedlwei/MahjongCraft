@@ -86,28 +86,25 @@ public final class ScoreEngine {
         Map<UUID, Integer> delta = new HashMap<>();
         boolean dealerWin = winner.equals(dealer);
         int gain = riichiPot;
-        switch (dealerWin) {
-            case true -> {
-                int eachPay = value.tsumoDealerEach() + honba * 100;
-                for (UUID p : players) {
-                    if (p.equals(winner)) {
-                        continue;
-                    }
-                    delta.put(p, delta.getOrDefault(p, 0) - eachPay);
-                    gain += eachPay;
+        if (dealerWin) {
+            int eachPay = value.tsumoDealerEach() + honba * 100;
+            for (UUID p : players) {
+                if (p.equals(winner)) {
+                    continue;
                 }
+                delta.put(p, delta.getOrDefault(p, 0) - eachPay);
+                gain += eachPay;
             }
-            case false -> {
-                int dealerPay = value.tsumoChildDealerPay() + honba * 100;
-                int otherPay = value.tsumoChildOtherPay() + honba * 100;
-                for (UUID p : players) {
-                    if (p.equals(winner)) {
-                        continue;
-                    }
-                    int pay = p.equals(dealer) ? dealerPay : otherPay;
-                    delta.put(p, delta.getOrDefault(p, 0) - pay);
-                    gain += pay;
+        } else {
+            int dealerPay = value.tsumoChildDealerPay() + honba * 100;
+            int otherPay = value.tsumoChildOtherPay() + honba * 100;
+            for (UUID p : players) {
+                if (p.equals(winner)) {
+                    continue;
                 }
+                int pay = p.equals(dealer) ? dealerPay : otherPay;
+                delta.put(p, delta.getOrDefault(p, 0) - pay);
+                gain += pay;
             }
         }
         delta.put(winner, delta.getOrDefault(winner, 0) + gain);
@@ -195,16 +192,22 @@ public final class ScoreEngine {
     }
 
     private static int calculateBasePoints(int han, int fu) {
-        return switch (han) {
-            case int h when h >= 13 -> 8000;
-            case int h when h >= 11 -> 6000;
-            case int h when h >= 8 -> 4000;
-            case int h when h >= 6 -> 3000;
-            case 5 -> 2000;
-            case 4 -> fu >= 40 ? 2000 : Math.min(fu * (1 << (han + 2)), 2000);
-            case 3 -> fu >= 70 ? 2000 : Math.min(fu * (1 << (han + 2)), 2000);
-            default -> Math.min(fu * (1 << (han + 2)), 2000);
-        };
+        if (han >= 13) {
+            return 8000;
+        }
+        if (han >= 11) {
+            return 6000;
+        }
+        if (han >= 8) {
+            return 4000;
+        }
+        if (han >= 6) {
+            return 3000;
+        }
+        if (han == 5 || (han == 4 && fu >= 40) || (han == 3 && fu >= 70)) {
+            return 2000;
+        }
+        return Math.min(fu * (1 << (han + 2)), 2000);
     }
 
     private static int roundUp100(int value) {

@@ -251,10 +251,16 @@ public final class MahjongUtilsFacade {
 
     private String toTileText(MahjongTile tile) {
         int so = tile.sortOrder();
+        if (so <= 8) {
+            return (so + 1) + "m";
+        }
+        if (so <= 17) {
+            return (so - 9 + 1) + "p";
+        }
+        if (so <= 26) {
+            return (so - 18 + 1) + "s";
+        }
         return switch (so) {
-            case int v when v <= 8 -> (v + 1) + "m";
-            case int v when v <= 17 -> (v - 9 + 1) + "p";
-            case int v when v <= 26 -> (v - 18 + 1) + "s";
             case 27 -> "1z";
             case 28 -> "2z";
             case 29 -> "3z";
