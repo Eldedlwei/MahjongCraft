@@ -150,7 +150,9 @@ public final class MahjongTableManager {
     public void shutdown() {
         ensureMainThread();
         byId.values().forEach(table -> {
-            table.broadcastKey("table.plugin_shutdown");
+            if (plugin.isEnabled()) {
+                table.broadcastKey("table.plugin_shutdown");
+            }
             table.destroy();
         });
         byId.clear();
