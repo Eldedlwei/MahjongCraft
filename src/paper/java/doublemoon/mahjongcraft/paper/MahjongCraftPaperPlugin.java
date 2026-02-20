@@ -28,7 +28,7 @@ public final class MahjongCraftPaperPlugin extends JavaPlugin {
         this.moneyGateway = VaultMoneyGateway.create(this);
         TableRules rules = loadRules();
         this.tableManager = new MahjongTableManager(this, moneyGateway, rules);
-        this.entityGuiManager = new EntityTableGuiManager(tableManager);
+        this.entityGuiManager = new EntityTableGuiManager(tableManager, packetEventsInitialized);
         MahjongCommand command = new MahjongCommand(this, tableManager);
         PluginCommand mahjong = getCommand("mahjong");
         if (mahjong == null) {

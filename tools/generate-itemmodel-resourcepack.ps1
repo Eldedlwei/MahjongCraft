@@ -13,16 +13,14 @@ if (-not (Test-Path $sourceTexturesDir)) {
 }
 
 $packRoot = Join-Path $root $OutputDir
-$itemsDir = Join-Path $packRoot "assets/mahjongcraft/items/tile"
 $modelsDir = Join-Path $packRoot "assets/mahjongcraft/models/item/tile"
 $texturesDir = Join-Path $packRoot "assets/mahjongcraft/textures/item/tile"
-$vanillaModelsDir = Join-Path $packRoot "assets/minecraft/models/item"
+$vanillaItemsDir = Join-Path $packRoot "assets/minecraft/items"
 
 Remove-Item -Recurse -Force $packRoot -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Force -Path $itemsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 New-Item -ItemType Directory -Force -Path $texturesDir | Out-Null
-New-Item -ItemType Directory -Force -Path $vanillaModelsDir | Out-Null
+New-Item -ItemType Directory -Force -Path $vanillaItemsDir | Out-Null
 
 $tileKeys = @(
     "m1","m2","m3","m4","m5","m5_red","m6","m7","m8","m9",
@@ -62,38 +60,31 @@ foreach ($key in $tileKeys) {
 "@
     Set-Content -Path (Join-Path $modelsDir ($key + ".json")) -Value $rawModel -Encoding UTF8
 
-    $itemDefinition = @"
-{
-  "model": {
-    "type": "minecraft:model",
-    "model": "mahjongcraft:item/tile/$key"
-  }
-}
-"@
-    Set-Content -Path (Join-Path $itemsDir ($key + ".json")) -Value $itemDefinition -Encoding UTF8
 }
 
-# Legacy fallback: custom_model_data overrides for minecraft:paper
-$paperOverrides = New-Object System.Collections.Generic.List[string]
+# Custom model data floats mapping for minecraft:paper
+$paperEntries = New-Object System.Collections.Generic.List[string]
 $index = 0
 foreach ($key in $tileKeys) {
     $modelPath = "mahjongcraft:item/tile/$key"
     $cmd = 1000 + $index
-    $paperOverrides.Add(('    {{ "predicate": {{ "custom_model_data": {0} }}, "model": "{1}" }}' -f $cmd, $modelPath))
+    $paperEntries.Add(('    {{ "threshold": {0}, "model": {{ "type": "minecraft:model", "model": "{1}" }} }}' -f $cmd, $modelPath))
     $index++
 }
-$paperModel = @"
+$paperItem = @"
 {
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "minecraft:item/paper"
-  },
-  "overrides": [
-$(($paperOverrides -join ",`n"))
-  ]
+  "model": {
+    "type": "minecraft:range_dispatch",
+    "property": "minecraft:custom_model_data",
+    "index": 0,
+    "fallback": { "type": "minecraft:model", "model": "minecraft:item/paper" },
+    "entries": [
+$(($paperEntries -join ",`n"))
+    ]
+  }
 }
 "@
-Set-Content -Path (Join-Path $vanillaModelsDir "paper.json") -Value $paperModel -Encoding UTF8
+Set-Content -Path (Join-Path $vanillaItemsDir "paper.json") -Value $paperItem -Encoding UTF8
 
 $packMeta = @"
 {

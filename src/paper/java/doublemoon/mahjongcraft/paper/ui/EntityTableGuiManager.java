@@ -41,6 +41,7 @@ public final class EntityTableGuiManager implements Listener {
     // Inspired by text-display experiment style: anchor by table seat, render layered displays, route clicks via Interaction.
     private static final Skin SKIN = Skin.defaultSkin();
     private final MahjongTableManager tableManager;
+    private final boolean packetViewEnabled;
     private final Map<UUID, GuiSession> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, ClickBinding> bindings = new ConcurrentHashMap<>();
     private final Map<UUID, Long> clickThrottle = new ConcurrentHashMap<>();
@@ -49,12 +50,18 @@ public final class EntityTableGuiManager implements Listener {
     private final AtomicBoolean refreshQueued = new AtomicBoolean(false);
 
     public EntityTableGuiManager(MahjongTableManager tableManager) {
+        this(tableManager, false);
+    }
+
+    public EntityTableGuiManager(MahjongTableManager tableManager, boolean packetViewEnabled) {
         this.tableManager = tableManager;
+        this.packetViewEnabled = packetViewEnabled;
     }
 
     public void openFor(Player player, MahjongTable table) {
         close(player.getUniqueId());
-        GuiSession session = new GuiSession(player.getUniqueId(), table.id());
+        PacketViewSpace packetView = packetViewEnabled ? new PacketViewSpace(player) : null;
+        GuiSession session = new GuiSession(player.getUniqueId(), table.id(), packetView);
         sessions.put(player.getUniqueId(), session);
         player.getScheduler().run(tableManager.plugin(), task -> {
             GuiSession current = sessions.get(player.getUniqueId());
@@ -139,6 +146,9 @@ public final class EntityTableGuiManager implements Listener {
             return;
         }
         clearSessionEntities(session);
+        if (session.packetView != null) {
+            session.packetView.close();
+        }
         clickThrottle.remove(playerId);
         selectedHandIndex.remove(playerId);
     }
@@ -548,6 +558,10 @@ public final class EntityTableGuiManager implements Listener {
             String signature
     ) {
         activeItemKeys.add(key);
+        if (session.packetView != null) {
+            upsertPacketItem(session, key, location, yaw, scale, itemStack, signature);
+            return;
+        }
         runAt(location, () -> {
             ItemDisplay display = session.itemDisplays.get(key);
             if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
@@ -577,6 +591,39 @@ public final class EntityTableGuiManager implements Listener {
             }
             session.itemStates.put(key, new ItemState(signature, yaw, scale));
         });
+    }
+
+    private void upsertPacketItem(
+            GuiSession session,
+            String key,
+            Location location,
+            float yaw,
+            float scale,
+            ItemStack itemStack,
+            String signature
+    ) {
+        PacketItemState previous = session.packetItemStates.get(key);
+        if (previous != null && packetItemMatches(previous, signature, yaw, scale, location)) {
+            return;
+        }
+        if (previous != null) {
+            session.packetView.destroy(previous.entityId());
+        }
+        int entityId = session.packetView.spawnItemDisplay(location, itemStack, scale, yaw);
+        session.packetItemStates.put(key, new PacketItemState(entityId, signature, yaw, scale, location.clone()));
+    }
+
+    private boolean packetItemMatches(PacketItemState state, String signature, float yaw, float scale, Location location) {
+        if (!state.signature().equals(signature)) {
+            return false;
+        }
+        if (Math.abs(state.yaw() - yaw) > 0.01f) {
+            return false;
+        }
+        if (Math.abs(state.scale() - scale) > 0.0001f) {
+            return false;
+        }
+        return !hasMeaningfulMove(state.location(), location);
     }
 
     private void upsertInteraction(
@@ -636,6 +683,15 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private void pruneItems(GuiSession session, Set<String> activeKeys) {
+        if (session.packetView != null) {
+            List<String> keys = new ArrayList<>(session.packetItemStates.keySet());
+            for (String key : keys) {
+                if (!activeKeys.contains(key)) {
+                    removePacketItem(session, key);
+                }
+            }
+            return;
+        }
         List<String> keys = new ArrayList<>(session.itemDisplays.keySet());
         for (String key : keys) {
             if (!activeKeys.contains(key)) {
@@ -675,11 +731,22 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private void removeItem(GuiSession session, String key) {
+        if (session.packetView != null) {
+            removePacketItem(session, key);
+            return;
+        }
         ItemDisplay display = session.itemDisplays.remove(key);
         if (display != null && display.isValid()) {
             scheduleEntityRemoval(display);
         }
         session.itemStates.remove(key);
+    }
+
+    private void removePacketItem(GuiSession session, String key) {
+        PacketItemState state = session.packetItemStates.remove(key);
+        if (state != null) {
+            session.packetView.destroy(state.entityId());
+        }
     }
 
     private void removeInteraction(GuiSession session, String key) {
@@ -699,6 +766,9 @@ public final class EntityTableGuiManager implements Listener {
         }
         for (String key : new ArrayList<>(session.itemDisplays.keySet())) {
             removeItem(session, key);
+        }
+        for (String key : new ArrayList<>(session.packetItemStates.keySet())) {
+            removePacketItem(session, key);
         }
         for (String key : new ArrayList<>(session.interactions.keySet())) {
             removeInteraction(session, key);
@@ -727,9 +797,11 @@ public final class EntityTableGuiManager implements Listener {
                 return false;
             }
         }
-        for (ItemDisplay display : session.itemDisplays.values()) {
-            if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
-                return false;
+        if (session.packetView == null) {
+            for (ItemDisplay display : session.itemDisplays.values()) {
+                if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
+                    return false;
+                }
             }
         }
         for (Interaction interaction : session.interactions.values()) {
@@ -769,17 +841,20 @@ public final class EntityTableGuiManager implements Listener {
     private static final class GuiSession {
         private final UUID viewer;
         private final String tableId;
+        private final PacketViewSpace packetView;
         private final Map<String, TextDisplay> textDisplays = new ConcurrentHashMap<>();
         private final Map<String, ItemDisplay> itemDisplays = new ConcurrentHashMap<>();
+        private final Map<String, PacketItemState> packetItemStates = new ConcurrentHashMap<>();
         private final Map<String, Interaction> interactions = new ConcurrentHashMap<>();
         private final Map<String, TextState> textStates = new ConcurrentHashMap<>();
         private final Map<String, ItemState> itemStates = new ConcurrentHashMap<>();
         private final Map<String, InteractionState> interactionStates = new ConcurrentHashMap<>();
         private int lastRenderHash = Integer.MIN_VALUE;
 
-        private GuiSession(UUID viewer, String tableId) {
+        private GuiSession(UUID viewer, String tableId, PacketViewSpace packetView) {
             this.viewer = viewer;
             this.tableId = tableId;
+            this.packetView = packetView;
         }
     }
 
@@ -787,6 +862,9 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private record ItemState(String signature, float yaw, float scale) {
+    }
+
+    private record PacketItemState(int entityId, String signature, float yaw, float scale, Location location) {
     }
 
     private record InteractionState(float width, float height) {

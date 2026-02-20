@@ -3,6 +3,8 @@ package doublemoon.mahjongcraft.paper.command;
 import doublemoon.mahjongcraft.paper.MahjongCraftPaperPlugin;
 import doublemoon.mahjongcraft.paper.game.MahjongTable;
 import doublemoon.mahjongcraft.paper.game.MahjongTableManager;
+import doublemoon.mahjongcraft.paper.game.MahjongTile;
+import doublemoon.mahjongcraft.paper.game.TileVisuals;
 import doublemoon.mahjongcraft.paper.message.MessageUtil;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
@@ -17,7 +19,7 @@ import java.util.Objects;
 
 public final class MahjongCommand implements TabExecutor {
     private static final List<String> SUBCOMMANDS = List.of(
-            "create", "join", "leave", "mode", "start", "hand", "claim", "gui", "discard", "pay",
+            "create", "join", "leave", "mode", "start", "hand", "claim", "gui", "discard", "pay", "item",
             "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status"
     );
     private static final List<String> MODE_OPTIONS = List.of("bot", "human");
@@ -32,6 +34,7 @@ public final class MahjongCommand implements TabExecutor {
             "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s",
             "east", "south", "west", "north", "white", "green", "red"
     );
+    private static final List<String> TILE_OPTIONS = buildTileOptions();
 
     private final MahjongCraftPaperPlugin plugin;
     private final MahjongTableManager manager;
@@ -88,6 +91,14 @@ public final class MahjongCommand implements TabExecutor {
                     handlePay(player, args[1]);
                 }
             }
+            case "item" -> {
+                if (args.length < 2) {
+                    MessageUtil.send(player, "cmd.usage_item");
+                } else {
+                    String amount = args.length >= 3 ? args[2] : "1";
+                    handleItem(player, args[1], amount);
+                }
+            }
             case "riichi" -> handleSimpleResult(player, table -> table.riichi(player.getUniqueId()));
             case "tsumo" -> handleSimpleResult(player, table -> table.tsumo(player.getUniqueId()));
             case "ron" -> handleSimpleResult(player, table -> table.ron(player.getUniqueId()));
@@ -122,9 +133,14 @@ public final class MahjongCommand implements TabExecutor {
                 case "discard" -> filterByPrefix(discardOptions(sender), args[1]);
                 case "kan" -> filterByPrefix(KAN_TILES, args[1]);
                 case "chii" -> filterByPrefix(CHII_TILES, args[1]);
+                case "item" -> filterByPrefix(TILE_OPTIONS, args[1]);
                 default -> List.of();
             };
-            default -> "chii".equalsIgnoreCase(args[0]) ? filterByPrefix(CHII_TILES, args[args.length - 1]) : List.of();
+            default -> switch (args[0].toLowerCase(Locale.ROOT)) {
+                case "chii" -> filterByPrefix(CHII_TILES, args[args.length - 1]);
+                case "item" -> List.of("1", "16", "64");
+                default -> List.of();
+            };
         };
     }
 
@@ -315,6 +331,34 @@ public final class MahjongCommand implements TabExecutor {
         plugin.entityGuiManager().refreshTable(table.id());
     }
 
+    private void handleItem(Player player, String rawTile, String rawAmount) {
+        MahjongTile tile = MahjongTile.parse(rawTile);
+        if (tile == null) {
+            MessageUtil.send(player, "cmd.err_unknown_tile");
+            return;
+        }
+        int amount;
+        try {
+            amount = Integer.parseInt(rawAmount);
+        } catch (NumberFormatException e) {
+            MessageUtil.send(player, "cmd.err_number_amount");
+            return;
+        }
+        if (amount < 1) {
+            MessageUtil.send(player, "cmd.err_number_amount");
+            return;
+        }
+        int remaining = amount;
+        while (remaining > 0) {
+            int batch = Math.min(remaining, 64);
+            var stack = TileVisuals.createTileItem(tile, "");
+            stack.setAmount(batch);
+            player.getInventory().addItem(stack);
+            remaining -= batch;
+        }
+        MessageUtil.send(player, "cmd.ok_item_given");
+    }
+
     private void handleSimpleResult(Player player, TableAction action) {
         MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
         if (table == null) {
@@ -338,7 +382,7 @@ public final class MahjongCommand implements TabExecutor {
     }
 
     private void sendHelp(Player player) {
-        for (int i = 1; i <= 18; i++) {
+        for (int i = 1; i <= 19; i++) {
             MessageUtil.send(player, "cmd.help." + i);
         }
     }
@@ -346,5 +390,13 @@ public final class MahjongCommand implements TabExecutor {
     @FunctionalInterface
     private interface TableAction {
         String apply(MahjongTable table);
+    }
+
+    private static List<String> buildTileOptions() {
+        List<String> options = new ArrayList<>();
+        for (MahjongTile tile : MahjongTile.values()) {
+            options.add(tile.shortName());
+        }
+        return options;
     }
 }
