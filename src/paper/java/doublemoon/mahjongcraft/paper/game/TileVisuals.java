@@ -28,11 +28,10 @@ public final class TileVisuals {
         try {
             Method m = meta.getClass().getMethod("setItemModel", NamespacedKey.class);
             m.invoke(meta, key);
-            return;
         } catch (ReflectiveOperationException ignored) {
             // Fallback for API variants.
         }
+        // Always set custom model data as a legacy fallback so vanilla clients still pick up overrides.
         meta.setCustomModelData(1000 + tile.ordinal());
     }
 }
-
