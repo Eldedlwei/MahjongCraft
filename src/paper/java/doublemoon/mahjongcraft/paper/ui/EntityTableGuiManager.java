@@ -417,22 +417,19 @@ public final class EntityTableGuiManager implements Listener {
     private Component buttonComponent(String text) {
         String capsule = "[" + text + "]";
         String upper = text.toUpperCase();
-        if (upper.startsWith("RON")) {
-            return Component.text(capsule, NamedTextColor.RED).decorate(TextDecoration.BOLD);
-        }
-        if (upper.startsWith("TSUMO")) {
-            return Component.text(capsule, NamedTextColor.AQUA).decorate(TextDecoration.BOLD);
-        }
-        if (upper.startsWith("RIICHI")) {
-            return Component.text(capsule, NamedTextColor.GREEN).decorate(TextDecoration.BOLD);
-        }
-        if (upper.startsWith("PASS")) {
-            return Component.text(capsule, NamedTextColor.GRAY);
-        }
-        if (upper.startsWith("CHII")) {
-            return Component.text(capsule, NamedTextColor.BLUE);
-        }
-        return Component.text(capsule, NamedTextColor.YELLOW);
+        return switch (upper) {
+            case String s when s.startsWith("RON") ->
+                    Component.text(capsule, NamedTextColor.RED).decorate(TextDecoration.BOLD);
+            case String s when s.startsWith("TSUMO") ->
+                    Component.text(capsule, NamedTextColor.AQUA).decorate(TextDecoration.BOLD);
+            case String s when s.startsWith("RIICHI") ->
+                    Component.text(capsule, NamedTextColor.GREEN).decorate(TextDecoration.BOLD);
+            case String s when s.startsWith("PASS") ->
+                    Component.text(capsule, NamedTextColor.GRAY);
+            case String s when s.startsWith("CHII") ->
+                    Component.text(capsule, NamedTextColor.BLUE);
+            default -> Component.text(capsule, NamedTextColor.YELLOW);
+        };
     }
 
     private Component titleComponent(MahjongTable table) {

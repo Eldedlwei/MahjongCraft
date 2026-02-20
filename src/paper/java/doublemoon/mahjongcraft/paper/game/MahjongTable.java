@@ -889,13 +889,11 @@ public final class MahjongTable {
     }
 
     private int chooseBotDiscardIndex(MahjongPlayerState state) {
-        if (state.hand().isEmpty()) {
-            return 1;
-        }
-        if (state.riichi()) {
-            return state.hand().size();
-        }
-        return ThreadLocalRandom.current().nextInt(1, state.hand().size() + 1);
+        return state.hand().isEmpty()
+                ? 1
+                : (state.riichi()
+                        ? state.hand().size()
+                        : ThreadLocalRandom.current().nextInt(1, state.hand().size() + 1));
     }
 
     private String applyPonOrKan(UUID caller, ClaimAction action) {
@@ -907,26 +905,40 @@ public final class MahjongTable {
         if (pendingDiscardGlobalIndex >= 0) {
             calledDiscardIndices.add(pendingDiscardGlobalIndex);
         }
-        List<MahjongTile> removed = removeTilesByType(state.hand(), pendingDiscardTile, action == ClaimAction.KAN ? 3 : 2);
-        if (removed.size() < (action == ClaimAction.KAN ? 3 : 2)) {
+        int removeCount = switch (action) {
+            case KAN -> 3;
+            case PON -> 2;
+            default -> 2;
+        };
+        List<MahjongTile> removed = removeTilesByType(state.hand(), pendingDiscardTile, removeCount);
+        if (removed.size() < removeCount) {
             return "Claim failed: tiles missing.";
         }
         List<MahjongTile> meldTiles = new ArrayList<>(removed);
         meldTiles.add(pendingDiscardTile);
-        state.melds().add(new MahjongMeld(action == ClaimAction.KAN ? MeldType.KAN_OPEN : MeldType.PON, meldTiles, true));
+        MeldType meldType = switch (action) {
+            case KAN -> MeldType.KAN_OPEN;
+            case PON -> MeldType.PON;
+            default -> MeldType.PON;
+        };
+        state.melds().add(new MahjongMeld(meldType, meldTiles, true));
         state.temporaryFuriten(false);
         turnIndex = seatIndexOf(caller);
         clearIppatsuAll();
-        if (action == ClaimAction.KAN) {
-            if (!drawSupplementTile(state)) {
-                return endByDraw("Kan resolved and wall exhausted.");
+        return switch (action) {
+            case KAN -> {
+                if (!drawSupplementTile(state)) {
+                    yield endByDraw("Kan resolved and wall exhausted.");
+                }
+                if (shouldAbortBySuukaikan()) {
+                    yield endByAbortiveDraw("Abortive draw: suukaikan.");
+                }
+                yield nameOf(caller) + " declared kan on " + pendingDiscardTile.shortName()
+                        + " and drew a supplement tile.";
             }
-            if (shouldAbortBySuukaikan()) {
-                return endByAbortiveDraw("Abortive draw: suukaikan.");
-            }
-            return nameOf(caller) + " declared kan on " + pendingDiscardTile.shortName() + " and drew a supplement tile.";
-        }
-        return nameOf(caller) + " declared pon on " + pendingDiscardTile.shortName() + ".";
+            case PON -> nameOf(caller) + " declared pon on " + pendingDiscardTile.shortName() + ".";
+            default -> "Claim failed.";
+        };
     }
 
     private String applyChii(UUID caller, List<MahjongTile> chosenTiles) {
@@ -978,12 +990,11 @@ public final class MahjongTable {
             }
             boolean houtei = wall.isEmpty();
             if (!houtei && !state.riichi()) {
-                if (countSameType(state.hand(), discarded) >= 3 && canOpenKanFromDiscard(uuid, discarder)) {
-                    if (canDeclareKanNow()) {
-                        set.add(ClaimAction.KAN);
-                    }
+                int sameType = countSameType(state.hand(), discarded);
+                if (sameType >= 3 && canOpenKanFromDiscard(uuid, discarder) && canDeclareKanNow()) {
+                    set.add(ClaimAction.KAN);
                 }
-                if (countSameType(state.hand(), discarded) >= 2) {
+                if (sameType >= 2) {
                     set.add(ClaimAction.PON);
                 }
                 if (uuid.equals(nextPlayerOf(discarder)) && hasChiiOption(state.hand(), discarded)) {
@@ -1463,7 +1474,10 @@ public final class MahjongTable {
     }
 
     private boolean isWindTile(MahjongTile tile) {
-        return tile == MahjongTile.EAST || tile == MahjongTile.SOUTH || tile == MahjongTile.WEST || tile == MahjongTile.NORTH;
+        return switch (tile) {
+            case EAST, SOUTH, WEST, NORTH -> true;
+            default -> false;
+        };
     }
 
     private boolean canWinByRule(HandValue value) {

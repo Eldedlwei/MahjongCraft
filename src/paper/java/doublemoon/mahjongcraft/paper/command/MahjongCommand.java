@@ -16,6 +16,23 @@ import java.util.Locale;
 import java.util.Objects;
 
 public final class MahjongCommand implements TabExecutor {
+    private static final List<String> SUBCOMMANDS = List.of(
+            "create", "join", "leave", "mode", "start", "hand", "claim", "gui", "discard", "pay",
+            "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status"
+    );
+    private static final List<String> MODE_OPTIONS = List.of("bot", "human");
+    private static final List<String> CHII_TILES = List.of(
+            "1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
+            "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
+            "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s"
+    );
+    private static final List<String> KAN_TILES = List.of(
+            "1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
+            "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
+            "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s",
+            "east", "south", "west", "north", "white", "green", "red"
+    );
+
     private final MahjongCraftPaperPlugin plugin;
     private final MahjongTableManager manager;
 
@@ -98,37 +115,29 @@ public final class MahjongCommand implements TabExecutor {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
-        if (args.length == 1) {
-            return List.of("create", "join", "leave", "mode", "start", "hand", "claim", "gui", "discard", "pay", "riichi", "tsumo", "ron", "kyuushu", "pon", "kan", "chii", "pass", "status");
-        }
-        if (args.length == 2 && "mode".equalsIgnoreCase(args[0])) {
-            return List.of("bot", "human");
-        }
-        if (args.length == 2 && "discard".equalsIgnoreCase(args[0])) {
-            if (sender instanceof Player player) {
-                MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
-                if (table != null) {
-                    int size = Objects.requireNonNull(table.players().get(player.getUniqueId())).hand().size();
-                    List<String> list = new ArrayList<>();
-                    for (int i = 1; i <= size; i++) {
-                        list.add(String.valueOf(i));
+        return switch (args.length) {
+            case 1 -> SUBCOMMANDS;
+            case 2 -> switch (args[0].toLowerCase(Locale.ROOT)) {
+                case "mode" -> MODE_OPTIONS;
+                case "discard" -> {
+                    if (sender instanceof Player player) {
+                        MahjongTable table = manager.getTableByPlayer(player.getUniqueId());
+                        if (table != null) {
+                            int size = Objects.requireNonNull(table.players().get(player.getUniqueId())).hand().size();
+                            List<String> list = new ArrayList<>(size);
+                            for (int i = 1; i <= size; i++) {
+                                list.add(String.valueOf(i));
+                            }
+                            yield list;
+                        }
                     }
-                    return list;
+                    yield List.of();
                 }
-            }
-        }
-        if (args.length >= 2 && "chii".equalsIgnoreCase(args[0])) {
-            return List.of("1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
-                    "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
-                    "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s");
-        }
-        if (args.length == 2 && "kan".equalsIgnoreCase(args[0])) {
-            return List.of("1m", "2m", "3m", "4m", "5m", "5mr", "6m", "7m", "8m", "9m",
-                    "1p", "2p", "3p", "4p", "5p", "5pr", "6p", "7p", "8p", "9p",
-                    "1s", "2s", "3s", "4s", "5s", "5sr", "6s", "7s", "8s", "9s",
-                    "east", "south", "west", "north", "white", "green", "red");
-        }
-        return List.of();
+                case "kan" -> KAN_TILES;
+                default -> List.of();
+            };
+            default -> "chii".equalsIgnoreCase(args[0]) ? CHII_TILES : List.of();
+        };
     }
 
     private void handleCreate(Player player) {

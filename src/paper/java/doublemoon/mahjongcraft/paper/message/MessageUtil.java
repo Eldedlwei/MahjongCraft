@@ -62,19 +62,19 @@ public final class MessageUtil {
 
     private static String tr(CommandSender sender, String key) {
         String locale = localeOf(sender);
-        Properties bundle = BUNDLES.getOrDefault(locale, BUNDLES.get(DEFAULT_LOCALE));
-        if (bundle == null) {
-            return "<gray>[Mahjong]</gray> " + key;
-        }
-        String value = bundle.getProperty(key);
-        if (value != null) {
-            return value;
-        }
         Properties fallback = BUNDLES.get(DEFAULT_LOCALE);
-        if (fallback == null) {
-            return "<gray>[Mahjong]</gray> " + key;
-        }
-        return fallback.getProperty(key, "<gray>[Mahjong]</gray> " + key);
+        Properties bundle = BUNDLES.getOrDefault(locale, fallback);
+        String defaultMsg = "<gray>[Mahjong]</gray> " + key;
+        return switch (bundle) {
+            case null -> defaultMsg;
+            default -> {
+                String value = bundle.getProperty(key);
+                if (value != null) {
+                    yield value;
+                }
+                yield fallback == null ? defaultMsg : fallback.getProperty(key, defaultMsg);
+            }
+        };
     }
 
     private static String localeOf(CommandSender sender) {
@@ -82,9 +82,7 @@ public final class MessageUtil {
             Locale locale = player.locale();
             if (locale != null) {
                 String raw = locale.toLanguageTag().replace('-', '_');
-                if (!raw.isBlank()) {
-                    return raw.toLowerCase(Locale.ROOT);
-                }
+                return raw.isBlank() ? DEFAULT_LOCALE : raw.toLowerCase(Locale.ROOT);
             }
         }
         return DEFAULT_LOCALE;

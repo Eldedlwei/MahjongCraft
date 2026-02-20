@@ -26,17 +26,24 @@ public final class TableClickStartListener implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
     public void onRightClickBlock(PlayerInteractEvent event) {
-        if (event.getAction() != Action.RIGHT_CLICK_BLOCK || event.getClickedBlock() == null) {
-            return;
+        switch (event.getAction()) {
+            case RIGHT_CLICK_BLOCK -> {
+                if (event.getClickedBlock() == null) {
+                    return;
+                }
+                Player player = event.getPlayer();
+                Location click = event.getClickedBlock().getLocation().add(0.5, 0.5, 0.5);
+                MahjongTable table = manager.findNearestTable(click, CLICK_RADIUS_SQ);
+                if (table == null || table.center().getWorld() == null) {
+                    return;
+                }
+                handleClick(player, table);
+                event.setCancelled(true);
+            }
+            default -> {
+                return;
+            }
         }
-        Player player = event.getPlayer();
-        Location click = event.getClickedBlock().getLocation().add(0.5, 0.5, 0.5);
-        MahjongTable table = manager.findNearestTable(click, CLICK_RADIUS_SQ);
-        if (table == null || table.center().getWorld() == null) {
-            return;
-        }
-        handleClick(player, table);
-        event.setCancelled(true);
     }
 
     private void handleClick(Player player, MahjongTable table) {

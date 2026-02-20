@@ -49,6 +49,18 @@ public enum MahjongTile {
 
     public static final Comparator<MahjongTile> SORTER =
             Comparator.comparingInt((MahjongTile tile) -> tile.sortOrder).thenComparing(tile -> tile.red ? 0 : 1);
+    private static final MahjongTile[] BY_SORT_ORDER = new MahjongTile[34];
+    private static final java.util.Map<String, MahjongTile> PARSE_MAP = new java.util.HashMap<>();
+
+    static {
+        for (MahjongTile tile : values()) {
+            if (!tile.red) {
+                BY_SORT_ORDER[tile.sortOrder] = tile;
+            }
+            PARSE_MAP.put(tile.shortName, tile);
+            PARSE_MAP.put(tile.name().toLowerCase(Locale.ROOT), tile);
+        }
+    }
 
     private final String shortName;
     private final String textureKey;
@@ -111,33 +123,31 @@ public enum MahjongTile {
     }
 
     public static MahjongTile fromSortOrder(int sortOrder) {
-        for (MahjongTile tile : values()) {
-            if (tile.sortOrder == sortOrder && !tile.red) {
-                return tile;
-            }
+        if (sortOrder < 0 || sortOrder >= BY_SORT_ORDER.length) {
+            throw new IllegalArgumentException("Invalid sort order: " + sortOrder);
         }
-        throw new IllegalArgumentException("Invalid sort order: " + sortOrder);
+        MahjongTile tile = BY_SORT_ORDER[sortOrder];
+        if (tile == null) {
+            throw new IllegalArgumentException("Invalid sort order: " + sortOrder);
+        }
+        return tile;
     }
 
     public static MahjongTile parse(String input) {
         String key = input.toLowerCase(Locale.ROOT);
-        for (MahjongTile tile : values()) {
-            if (tile.shortName.equals(key) || tile.name().toLowerCase(Locale.ROOT).equals(key)) {
-                return tile;
-            }
-        }
-        return null;
+        return PARSE_MAP.get(key);
     }
 
     public static List<MahjongTile> buildWallWithThreeRedFives() {
         List<MahjongTile> wall = new ArrayList<>(136);
         for (MahjongTile tile : values()) {
-            if (tile == M5_RED || tile == P5_RED || tile == S5_RED) {
+            int copies = switch (tile) {
+                case M5_RED, P5_RED, S5_RED -> 0;
+                case M5, P5, S5 -> 3;
+                default -> 4;
+            };
+            if (copies == 0) {
                 continue;
-            }
-            int copies = 4;
-            if (tile == M5 || tile == P5 || tile == S5) {
-                copies = 3;
             }
             for (int i = 0; i < copies; i++) {
                 wall.add(tile);
