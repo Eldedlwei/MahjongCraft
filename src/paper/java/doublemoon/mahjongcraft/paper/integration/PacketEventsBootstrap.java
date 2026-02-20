@@ -16,7 +16,7 @@ public final class PacketEventsBootstrap {
             return false;
         }
         try {
-            Class<?> builderClass = Class.forName("com.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder");
+            Class<?> builderClass = Class.forName("io.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder");
             Method build = builderClass.getMethod("build", org.bukkit.plugin.Plugin.class);
             Object api = build.invoke(null, plugin);
 
