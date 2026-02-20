@@ -16,15 +16,7 @@ public final class PacketEventsBootstrap {
             return false;
         }
         try {
-            Class<?> builderClass = null;
-            try {
-                builderClass = Class.forName("com.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder");
-            } catch (ClassNotFoundException ignored) {
-                // Newer PacketEvents versions moved builders under the Bukkit package.
-            }
-            if (builderClass == null) {
-                builderClass = Class.forName("com.github.retrooper.packetevents.factory.bukkit.BukkitPacketEventsBuilder");
-            }
+            Class<?> builderClass = Class.forName("com.github.retrooper.packetevents.factory.spigot.SpigotPacketEventsBuilder");
             Method build = builderClass.getMethod("build", org.bukkit.plugin.Plugin.class);
             Object api = build.invoke(null, plugin);
 
