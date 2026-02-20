@@ -2,12 +2,14 @@ package doublemoon.mahjongcraft.paper.game;
 
 import doublemoon.mahjongcraft.paper.integration.MoneyGateway;
 import doublemoon.mahjongcraft.paper.message.MessageUtil;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.Player;
+import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.util.Transformation;
 import org.joml.AxisAngle4f;
 import org.joml.Vector3f;
@@ -32,6 +34,7 @@ public final class MahjongTable {
         HUMAN_ONLY
     }
 
+    private final JavaPlugin plugin;
     private final String id;
     private final UUID host;
     private final Location center;
@@ -80,7 +83,8 @@ public final class MahjongTable {
     private PendingKakan pendingKakan;
     private UUID pendingAnkanOwner;
 
-    public MahjongTable(String id, UUID host, Location center, MoneyGateway moneyGateway, TableRules rules) {
+    public MahjongTable(JavaPlugin plugin, String id, UUID host, Location center, MoneyGateway moneyGateway, TableRules rules) {
+        this.plugin = Objects.requireNonNull(plugin, "plugin");
         this.id = id;
         this.host = host;
         this.center = center.clone();
@@ -612,27 +616,63 @@ public final class MahjongTable {
     }
 
     public void broadcast(String message) {
-        ensureMainThread();
-        for (UUID uuid : players.keySet()) {
-            Player player = Bukkit.getPlayer(uuid);
-            if (player != null && player.isOnline()) {
-                MessageUtil.sendRaw(player, message);
+        runAtCenter(() -> {
+            List<UUID> recipients = new ArrayList<>(players.keySet());
+            for (UUID uuid : recipients) {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player != null) {
+                    player.getScheduler().run(plugin, task -> {
+                        if (player.isOnline()) {
+                            MessageUtil.sendRaw(player, message);
+                        }
+                    }, null);
+                }
             }
+        });
+    }
+
+    public void broadcast(Component message) {
+        if (message == null) {
+            return;
         }
+        runAtCenter(() -> {
+            List<UUID> recipients = new ArrayList<>(players.keySet());
+            for (UUID uuid : recipients) {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player != null) {
+                    player.getScheduler().run(plugin, task -> {
+                        if (player.isOnline()) {
+                            player.sendMessage(message);
+                        }
+                    }, null);
+                }
+            }
+        });
     }
 
     public void broadcastKey(String key) {
         broadcastKey(key, Map.of());
     }
 
+    public void broadcastKey(Component message) {
+        broadcast(message);
+    }
+
     public void broadcastKey(String key, Map<String, String> args) {
-        ensureMainThread();
-        for (UUID uuid : players.keySet()) {
-            Player player = Bukkit.getPlayer(uuid);
-            if (player != null && player.isOnline()) {
-                MessageUtil.send(player, key, args);
+        Map<String, String> safeArgs = args == null ? Map.of() : Map.copyOf(args);
+        runAtCenter(() -> {
+            List<UUID> recipients = new ArrayList<>(players.keySet());
+            for (UUID uuid : recipients) {
+                Player player = Bukkit.getPlayer(uuid);
+                if (player != null) {
+                    player.getScheduler().run(plugin, task -> {
+                        if (player.isOnline()) {
+                            MessageUtil.send(player, key, safeArgs);
+                        }
+                    }, null);
+                }
             }
-        }
+        });
     }
 
     public boolean isEmpty() {
@@ -2138,6 +2178,19 @@ public final class MahjongTable {
         if (!Bukkit.isPrimaryThread()) {
             throw new IllegalStateException("MahjongTable must run on main server thread");
         }
+    }
+
+    private void runAtCenter(Runnable action) {
+        if (action == null) {
+            return;
+        }
+        Location location = center;
+        World world = location == null ? null : location.getWorld();
+        if (world == null) {
+            Bukkit.getGlobalRegionScheduler().run(plugin, task -> action.run());
+            return;
+        }
+        world.getRegionScheduler().run(plugin, location, task -> action.run());
     }
 
     private void applyFlatTransform(ItemDisplay display, float yaw) {

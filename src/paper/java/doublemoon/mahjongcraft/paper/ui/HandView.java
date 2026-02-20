@@ -36,7 +36,8 @@ public final class HandView {
         }
 
         OPENED_TABLE.put(player.getUniqueId(), table.id());
-        Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(inventory));
+        // Use Paper's entity scheduler (Folia-safe) for player inventory actions.
+        player.getScheduler().run(plugin, task -> player.openInventory(inventory), null);
     }
 
     public static String getOpenedTable(UUID uuid) {

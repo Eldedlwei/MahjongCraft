@@ -28,54 +28,55 @@ import org.joml.Vector3f;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public final class EntityTableGuiManager implements Listener {
     // Inspired by text-display experiment style: anchor by table seat, render layered displays, route clicks via Interaction.
     private static final Skin SKIN = Skin.defaultSkin();
     private final MahjongTableManager tableManager;
-    private final Map<UUID, GuiSession> sessions = new HashMap<>();
-    private final Map<UUID, ClickBinding> bindings = new HashMap<>();
-    private final Map<UUID, Long> clickThrottle = new HashMap<>();
-    private final Map<UUID, Integer> selectedHandIndex = new HashMap<>();
-    private final Set<String> pendingTableRefresh = new LinkedHashSet<>();
-    private boolean refreshQueued = false;
+    private final Map<UUID, GuiSession> sessions = new ConcurrentHashMap<>();
+    private final Map<UUID, ClickBinding> bindings = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> clickThrottle = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> selectedHandIndex = new ConcurrentHashMap<>();
+    private final Set<String> pendingTableRefresh = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean refreshQueued = new AtomicBoolean(false);
 
     public EntityTableGuiManager(MahjongTableManager tableManager) {
         this.tableManager = tableManager;
     }
 
     public void openFor(Player player, MahjongTable table) {
-        ensureMainThread();
         close(player.getUniqueId());
         GuiSession session = new GuiSession(player.getUniqueId(), table.id());
         sessions.put(player.getUniqueId(), session);
-        renderSession(player, table, session);
+        player.getScheduler().run(tableManager.plugin(), task -> {
+            GuiSession current = sessions.get(player.getUniqueId());
+            if (current == session && current.tableId.equalsIgnoreCase(table.id())) {
+                renderSession(player, table, session);
+            }
+        }, null);
     }
 
     public void refreshTable(String tableId) {
-        ensureMainThread();
         if (tableId == null || tableId.isBlank()) {
             return;
         }
         pendingTableRefresh.add(tableId.toUpperCase());
-        if (refreshQueued) {
+        if (!refreshQueued.compareAndSet(false, true)) {
             return;
         }
-        refreshQueued = true;
-        tableManager.plugin().getServer().getScheduler().runTask(tableManager.plugin(), this::processRefreshQueue);
+        Bukkit.getGlobalRegionScheduler().run(tableManager.plugin(), task -> processRefreshQueue());
     }
 
     private void processRefreshQueue() {
-        ensureMainThread();
-        refreshQueued = false;
+        refreshQueued.set(false);
         if (pendingTableRefresh.isEmpty()) {
             return;
         }
@@ -87,7 +88,6 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private void refreshTableNow(String tableId) {
-        MahjongTable table = tableManager.getTableById(tableId);
         List<UUID> viewers = new ArrayList<>();
         for (GuiSession session : sessions.values()) {
             if (session.tableId.equalsIgnoreCase(tableId)) {
@@ -100,19 +100,40 @@ public final class EntityTableGuiManager implements Listener {
                 close(viewer);
                 continue;
             }
-            if (table == null || table.players().get(viewer) == null) {
-                close(viewer);
-                continue;
-            }
             GuiSession session = sessions.get(viewer);
             if (session != null) {
-                renderSession(player, table, session);
+                if (!session.tableId.equalsIgnoreCase(tableId)) {
+                    continue;
+                }
+                player.getScheduler().run(tableManager.plugin(), task -> {
+                    GuiSession current = sessions.get(viewer);
+                    if (current != session || !player.isOnline()) {
+                        return;
+                    }
+                    if (!current.tableId.equalsIgnoreCase(tableId)) {
+                        return;
+                    }
+                    MahjongTable table = tableManager.getTableById(tableId);
+                    if (table == null || table.players().get(viewer) == null) {
+                        closeNow(viewer);
+                        return;
+                    }
+                    renderSession(player, table, session);
+                }, null);
             }
         }
     }
 
     public void close(UUID playerId) {
-        ensureMainThread();
+        Player player = Bukkit.getPlayer(playerId);
+        if (player != null && player.isOnline()) {
+            player.getScheduler().run(tableManager.plugin(), task -> closeNow(playerId), null);
+            return;
+        }
+        closeNow(playerId);
+    }
+
+    private void closeNow(UUID playerId) {
         GuiSession session = sessions.remove(playerId);
         if (session == null) {
             return;
@@ -123,12 +144,25 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     public void closeByTable(String tableId) {
-        ensureMainThread();
         List<UUID> viewers = new ArrayList<>();
         for (GuiSession session : sessions.values()) {
             if (session.tableId.equalsIgnoreCase(tableId)) {
                 viewers.add(session.viewer);
             }
+        }
+        MahjongTable table = tableManager.getTableById(tableId);
+        Location center = table == null ? null : table.center();
+        if (center != null) {
+            runAt(center, () -> {
+                for (UUID viewer : viewers) {
+                    GuiSession current = sessions.get(viewer);
+                    if (current == null || !current.tableId.equalsIgnoreCase(tableId)) {
+                        continue;
+                    }
+                    closeNow(viewer);
+                }
+            });
+            return;
         }
         for (UUID viewer : viewers) {
             close(viewer);
@@ -136,7 +170,6 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     public void shutdown() {
-        ensureMainThread();
         List<UUID> all = new ArrayList<>(sessions.keySet());
         for (UUID uuid : all) {
             close(uuid);
@@ -145,7 +178,7 @@ public final class EntityTableGuiManager implements Listener {
         clickThrottle.clear();
         selectedHandIndex.clear();
         pendingTableRefresh.clear();
-        refreshQueued = false;
+        refreshQueued.set(false);
     }
 
     @EventHandler
@@ -174,11 +207,30 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private void renderSession(Player player, MahjongTable table, GuiSession session) {
+        Location center = table.center();
+        if (center == null || center.getWorld() == null) {
+            player.getScheduler().run(tableManager.plugin(), task -> closeNow(player.getUniqueId()), null);
+            return;
+        }
+        runAt(center, () -> renderSessionInRegion(player, table, session));
+    }
+
+    private void renderSessionInRegion(Player player, MahjongTable table, GuiSession session) {
+        Location center = table.center();
+        if (center == null || center.getWorld() == null) {
+            closeNow(player.getUniqueId());
+            return;
+        }
         if (!player.isOnline()) {
             sessions.remove(player.getUniqueId());
             return;
         }
-        World world = table.center().getWorld();
+        UUID viewer = player.getUniqueId();
+        GuiSession currentSession = sessions.get(viewer);
+        if (currentSession != session || !session.tableId.equalsIgnoreCase(table.id())) {
+            return;
+        }
+        World world = center.getWorld();
         if (world == null || !world.equals(player.getWorld())) {
             clearSessionEntities(session);
             session.lastRenderHash = Integer.MIN_VALUE;
@@ -188,7 +240,6 @@ public final class EntityTableGuiManager implements Listener {
         if (renderHash == session.lastRenderHash && entitiesValid(session, world)) {
             return;
         }
-        UUID viewer = player.getUniqueId();
         if (!table.canDiscardNow(viewer)) {
             selectedHandIndex.remove(viewer);
         } else {
@@ -207,6 +258,10 @@ public final class EntityTableGuiManager implements Listener {
         Set<String> activeTextKeys = new HashSet<>();
         Set<String> activeItemKeys = new HashSet<>();
         Set<String> activeInteractionKeys = new HashSet<>();
+
+        if (!player.isOnline() || player.getWorld() != world) {
+            return;
+        }
 
         upsertText(session, activeTextKeys, "hud:title", world, titleLoc, titleComponent(table), SKIN.titleScale);
         upsertText(session, activeTextKeys, "hud:status", world, statusLoc, statusComponent(table), SKIN.statusScale);
@@ -415,6 +470,15 @@ public final class EntityTableGuiManager implements Listener {
     }
 
     private void runTableAction(Player player, MahjongTable table, Supplier<String> action) {
+        Location center = table.center();
+        if (center == null || center.getWorld() == null) {
+            player.getScheduler().run(tableManager.plugin(), task -> runTableActionInRegion(player, table, action), null);
+            return;
+        }
+        runAt(center, () -> runTableActionInRegion(player, table, action));
+    }
+
+    private void runTableActionInRegion(Player player, MahjongTable table, Supplier<String> action) {
         if (!player.isOnline()) {
             close(player.getUniqueId());
             return;
@@ -443,34 +507,36 @@ public final class EntityTableGuiManager implements Listener {
             float scale
     ) {
         activeTextKeys.add(key);
-        TextDisplay display = session.textDisplays.get(key);
-        if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
-            removeText(session, key);
-            display = world.spawn(location, TextDisplay.class);
-            configureBaseEntity(display);
-            display.setBillboard(Display.Billboard.CENTER);
-            display.setShadowed(true);
-            display.setSeeThrough(true);
-            display.setDefaultBackground(false);
-            session.textDisplays.put(key, display);
-            session.textStates.remove(key);
-        } else if (hasMeaningfulMove(display.getLocation(), location)) {
-            display.teleport(location);
-        }
+        runAt(location, () -> {
+            TextDisplay display = session.textDisplays.get(key);
+            if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
+                removeText(session, key);
+                display = world.spawn(location, TextDisplay.class);
+                configureBaseEntity(display);
+                display.setBillboard(Display.Billboard.CENTER);
+                display.setShadowed(true);
+                display.setSeeThrough(true);
+                display.setDefaultBackground(false);
+                session.textDisplays.put(key, display);
+                session.textStates.remove(key);
+            } else if (hasMeaningfulMove(display.getLocation(), location)) {
+                display.teleport(location);
+            }
 
-        TextState previous = session.textStates.get(key);
-        if (previous == null || !previous.text.equals(text)) {
-            display.text(text);
-        }
-        if (previous == null || Math.abs(previous.scale - scale) > 0.0001f) {
-            display.setTransformation(new Transformation(
-                    new Vector3f(0, 0, 0),
-                    new AxisAngle4f(),
-                    new Vector3f(scale, scale, scale),
-                    new AxisAngle4f()
-            ));
-        }
-        session.textStates.put(key, new TextState(text, scale));
+            TextState previous = session.textStates.get(key);
+            if (previous == null || !previous.text.equals(text)) {
+                display.text(text);
+            }
+            if (previous == null || Math.abs(previous.scale - scale) > 0.0001f) {
+                display.setTransformation(new Transformation(
+                        new Vector3f(0, 0, 0),
+                        new AxisAngle4f(),
+                        new Vector3f(scale, scale, scale),
+                        new AxisAngle4f()
+                ));
+            }
+            session.textStates.put(key, new TextState(text, scale));
+        });
     }
 
     private void upsertItem(
@@ -485,33 +551,35 @@ public final class EntityTableGuiManager implements Listener {
             String signature
     ) {
         activeItemKeys.add(key);
-        ItemDisplay display = session.itemDisplays.get(key);
-        if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
-            removeItem(session, key);
-            display = world.spawn(location, ItemDisplay.class);
-            configureBaseEntity(display);
-            session.itemDisplays.put(key, display);
-            session.itemStates.remove(key);
-        } else if (hasMeaningfulMove(display.getLocation(), location)) {
-            display.teleport(location);
-        }
+        runAt(location, () -> {
+            ItemDisplay display = session.itemDisplays.get(key);
+            if (display == null || !display.isValid() || !world.equals(display.getWorld())) {
+                removeItem(session, key);
+                display = world.spawn(location, ItemDisplay.class);
+                configureBaseEntity(display);
+                session.itemDisplays.put(key, display);
+                session.itemStates.remove(key);
+            } else if (hasMeaningfulMove(display.getLocation(), location)) {
+                display.teleport(location);
+            }
 
-        ItemState previous = session.itemStates.get(key);
-        if (previous == null || !previous.signature.equals(signature)) {
-            display.setItemStack(itemStack);
-        }
-        if (previous == null || Math.abs(previous.yaw - yaw) > 0.01f) {
-            display.setRotation(yaw, 0);
-        }
-        if (previous == null || Math.abs(previous.scale - scale) > 0.0001f) {
-            display.setTransformation(new Transformation(
-                    new Vector3f(0, 0, 0),
-                    new AxisAngle4f(),
-                    new Vector3f(scale, scale, scale),
-                    new AxisAngle4f()
-            ));
-        }
-        session.itemStates.put(key, new ItemState(signature, yaw, scale));
+            ItemState previous = session.itemStates.get(key);
+            if (previous == null || !previous.signature.equals(signature)) {
+                display.setItemStack(itemStack);
+            }
+            if (previous == null || Math.abs(previous.yaw - yaw) > 0.01f) {
+                display.setRotation(yaw, 0);
+            }
+            if (previous == null || Math.abs(previous.scale - scale) > 0.0001f) {
+                display.setTransformation(new Transformation(
+                        new Vector3f(0, 0, 0),
+                        new AxisAngle4f(),
+                        new Vector3f(scale, scale, scale),
+                        new AxisAngle4f()
+                ));
+            }
+            session.itemStates.put(key, new ItemState(signature, yaw, scale));
+        });
     }
 
     private void upsertInteraction(
@@ -526,26 +594,28 @@ public final class EntityTableGuiManager implements Listener {
             Runnable action
     ) {
         activeInteractionKeys.add(key);
-        Interaction interaction = session.interactions.get(key);
-        if (interaction == null || !interaction.isValid() || !world.equals(interaction.getWorld())) {
-            removeInteraction(session, key);
-            interaction = world.spawn(location, Interaction.class);
-            configureBaseEntity(interaction);
-            session.interactions.put(key, interaction);
-            session.interactionStates.remove(key);
-        } else if (hasMeaningfulMove(interaction.getLocation(), location)) {
-            interaction.teleport(location);
-        }
+        runAt(location, () -> {
+            Interaction interaction = session.interactions.get(key);
+            if (interaction == null || !interaction.isValid() || !world.equals(interaction.getWorld())) {
+                removeInteraction(session, key);
+                interaction = world.spawn(location, Interaction.class);
+                configureBaseEntity(interaction);
+                session.interactions.put(key, interaction);
+                session.interactionStates.remove(key);
+            } else if (hasMeaningfulMove(interaction.getLocation(), location)) {
+                interaction.teleport(location);
+            }
 
-        InteractionState previous = session.interactionStates.get(key);
-        if (previous == null || Math.abs(previous.width - width) > 0.0001f) {
-            interaction.setInteractionWidth(width);
-        }
-        if (previous == null || Math.abs(previous.height - height) > 0.0001f) {
-            interaction.setInteractionHeight(height);
-        }
-        session.interactionStates.put(key, new InteractionState(width, height));
-        bindings.put(interaction.getUniqueId(), new ClickBinding(owner, action));
+            InteractionState previous = session.interactionStates.get(key);
+            if (previous == null || Math.abs(previous.width - width) > 0.0001f) {
+                interaction.setInteractionWidth(width);
+            }
+            if (previous == null || Math.abs(previous.height - height) > 0.0001f) {
+                interaction.setInteractionHeight(height);
+            }
+            session.interactionStates.put(key, new InteractionState(width, height));
+            bindings.put(interaction.getUniqueId(), new ClickBinding(owner, action));
+        });
     }
 
     private void pruneStaleEntities(
@@ -602,7 +672,7 @@ public final class EntityTableGuiManager implements Listener {
     private void removeText(GuiSession session, String key) {
         TextDisplay display = session.textDisplays.remove(key);
         if (display != null && display.isValid()) {
-            display.remove();
+            scheduleEntityRemoval(display);
         }
         session.textStates.remove(key);
     }
@@ -610,7 +680,7 @@ public final class EntityTableGuiManager implements Listener {
     private void removeItem(GuiSession session, String key) {
         ItemDisplay display = session.itemDisplays.remove(key);
         if (display != null && display.isValid()) {
-            display.remove();
+            scheduleEntityRemoval(display);
         }
         session.itemStates.remove(key);
     }
@@ -620,7 +690,7 @@ public final class EntityTableGuiManager implements Listener {
         if (interaction != null) {
             bindings.remove(interaction.getUniqueId());
             if (interaction.isValid()) {
-                interaction.remove();
+                scheduleEntityRemoval(interaction);
             }
         }
         session.interactionStates.remove(key);
@@ -680,21 +750,34 @@ public final class EntityTableGuiManager implements Listener {
         entity.setSilent(true);
     }
 
-    private void ensureMainThread() {
-        if (!Bukkit.isPrimaryThread()) {
-            throw new IllegalStateException("EntityTableGuiManager must run on main server thread");
+    private void runAt(Location location, Runnable action) {
+        if (location == null) {
+            return;
         }
+        World world = location.getWorld();
+        if (world == null) {
+            return;
+        }
+        world.getRegionScheduler().run(tableManager.plugin(), location, task -> action.run());
+    }
+
+    private void scheduleEntityRemoval(Entity entity) {
+        entity.getScheduler().run(tableManager.plugin(), task -> {
+            if (entity.isValid()) {
+                entity.remove();
+            }
+        }, null);
     }
 
     private static final class GuiSession {
         private final UUID viewer;
         private final String tableId;
-        private final Map<String, TextDisplay> textDisplays = new HashMap<>();
-        private final Map<String, ItemDisplay> itemDisplays = new HashMap<>();
-        private final Map<String, Interaction> interactions = new HashMap<>();
-        private final Map<String, TextState> textStates = new HashMap<>();
-        private final Map<String, ItemState> itemStates = new HashMap<>();
-        private final Map<String, InteractionState> interactionStates = new HashMap<>();
+        private final Map<String, TextDisplay> textDisplays = new ConcurrentHashMap<>();
+        private final Map<String, ItemDisplay> itemDisplays = new ConcurrentHashMap<>();
+        private final Map<String, Interaction> interactions = new ConcurrentHashMap<>();
+        private final Map<String, TextState> textStates = new ConcurrentHashMap<>();
+        private final Map<String, ItemState> itemStates = new ConcurrentHashMap<>();
+        private final Map<String, InteractionState> interactionStates = new ConcurrentHashMap<>();
         private int lastRenderHash = Integer.MIN_VALUE;
 
         private GuiSession(UUID viewer, String tableId) {

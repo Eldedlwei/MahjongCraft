@@ -40,7 +40,7 @@ public final class MahjongTableManager {
         double y = Math.floor(host.getLocation().getY());
         double z = Math.floor(host.getLocation().getZ()) + 0.5;
         Location center = new Location(host.getWorld(), x, y, z);
-        MahjongTable table = new MahjongTable(id, host.getUniqueId(), center, moneyGateway, rules);
+        MahjongTable table = new MahjongTable(plugin, id, host.getUniqueId(), center, moneyGateway, rules);
         byId.put(id, table);
         playerToTableId.put(host.getUniqueId(), id);
         return table;
